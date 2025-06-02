@@ -1,0 +1,72 @@
+# serverless.dev.yml  ── ローカル開発専用
+service: hitokoto-app
+frameworkVersion: '3'
+useDotenv: true  
+
+########################
+# 1. プロバイダ設定
+########################
+provider:
+  name: aws
+  runtime: python3.11           # Lambda 側ランタイム。ローカルは 3.12 仮想環境で OK
+  region: local                 # 明示的に 'local'
+  stage: dev                    # ローカル固定。S3 / DynamoDB 名に dev が付きます
+  profile: default              # AWS 認証は使わないため任意
+
+  # 本番用バケット／ログ設定は不要なので削除
+  environment:          # ← ここにまとめて定義
+    UNSPLASH_ACCESS_KEY: ${env:UNSPLASH_ACCESS_KEY}
+    PHRASE_TABLE: hitokoto-phrases-dev）
+
+########################
+# 2. プラグイン
+########################
+plugins:
+   - serverless-dynamodb      # ← 新しい名前
+   - serverless-offline       # v14.3.4 以上
+
+########################
+# 3. カスタム設定
+########################
+custom:
+  dynamodb:
+    stages:
+      - dev
+    start:
+      port: 8000
+      inMemory: true             # コンテナ保存せずメモリのみ
+      migrate: true              # 起動時に resources で定義したテーブルを自動作成
+
+########################
+# 4. 関数
+########################
+functions:
+  api:
+    handler: app.main.lambda_handler
+    events:
+      - httpApi:
+          path: /
+          method: any
+    environment:
+      PHRASE_TABLE: hitokoto-phrases-dev
+
+########################
+# 5. ローカル用リソース
+########################
+resources:
+  Resources:
+    PhraseTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: hitokoto-phrases-dev    # stage 固定
+        AttributeDefinitions:
+          - AttributeName: pk
+            AttributeType: S
+          - AttributeName: phrase_id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: pk
+            KeyType: HASH
+          - AttributeName: phrase_id
+            KeyType: RANGE
+        BillingMode: PAY_PER_REQUEST
