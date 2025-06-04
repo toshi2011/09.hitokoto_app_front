@@ -26,3 +26,6 @@ export const listPhrases = () =>
   api.get<Phrase[]>('/phrases').then((r) => r.data);
 
 export default api;
+
+export const updatePhrase = (id: string, text: string) =>
+  api.patch<Phrase>(`/phrases/${id}`, { text }).then((r) => r.data);
