@@ -1,23 +1,12 @@
-// apps/frontend/.eslintrc.js
 module.exports = {
   root: true,
-  env: {
-    browser: true,
-    es2022: true,
-    node: true,
-  },
-  parserOptions: {
-    ecmaVersion: "latest",
-    sourceType: "module",
-  },
+  env: { browser: true, es2021: true },
   extends: [
-    "eslint:recommended",
-    "plugin:react/recommended",   // React を使う場合
+    'eslint:recommended',
+    'plugin:react/recommended'
   ],
-  settings: {
-    react: { version: "detect" },
-  },
-  rules: {
-    // 独自ルールをここに追加
-  },
+  parserOptions: { ecmaVersion: 12, sourceType: 'module' },
+  plugins: ['react'],
+  rules: {},
+  settings: { react: { version: 'detect' } }
 };
