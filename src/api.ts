@@ -1,4 +1,4 @@
-// === apps/frontend/src/api.ts ===
+// ===  apps/frontend/src/api.ts (Authorization ヘッダー自動付与) ===
 import axios from 'axios';
 
 /**
@@ -8,6 +8,12 @@ import axios from 'axios';
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:9000',
   timeout: 7000,
+});
+
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("line_id_token");
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
 });
 
 export interface Phrase {
