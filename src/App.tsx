@@ -7,7 +7,7 @@ import { PhraseCard } from "./components/PhraseCard";
 type Phrase = {
   phrase_id: string;
   text: string;
-  image_url?: string;
+  image_url: string | null;
   created_at: string;
 };
 
@@ -16,8 +16,8 @@ function App() {
   const [text, setText] = useState("");
 
   const fetchPhrases = async () => {
-    const res = await listPhrases();
-    setPhrases(res.data);
+     const phrases = await listPhrases();   // listPhrases() は配列を返す
+     setPhrases(phrases);
   };
 
   const submit = async () => {

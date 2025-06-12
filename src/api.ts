@@ -6,7 +6,7 @@ import axios from 'axios';
  * BASE_URL は .env で指定（NEXT_PUBLIC_API_URL など）
  */
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:9000',
+  baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:9000',
   timeout: 7000,
 });
 
