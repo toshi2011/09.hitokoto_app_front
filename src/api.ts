@@ -25,11 +25,11 @@ export interface Phrase {
 
 /** 投稿 */
 export const createPhrase = (text: string) =>
-  api.post<Phrase>('/phrases', { text }).then((r) => r.data);
+  api.post<Phrase>('/api/phrases', { text }).then((r) => r.data);
 
 /** 一覧取得 */
 export const listPhrases = () =>
-  api.get<Phrase[]>('/phrases').then((r) => r.data);
+  api.get<Phrase[]>('/api/phrases').then((r) => r.data);
 
 export default api;
 

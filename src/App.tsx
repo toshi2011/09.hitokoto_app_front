@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import axios from "axios";
-import PhraseCard from "./components/PhraseCard";
+import { listPhrases, createPhrase } from "./api";
+import { PhraseCard } from "./components/PhraseCard";
+
+
 
 type Phrase = {
   phrase_id: string;
@@ -14,13 +16,13 @@ function App() {
   const [text, setText] = useState("");
 
   const fetchPhrases = async () => {
-    const res = await axios.get<Phrase[]>(`/api/phrases?limit=20`);
+    const res = await listPhrases();
     setPhrases(res.data);
   };
 
   const submit = async () => {
     if (!text) return;
-    await axios.post<Phrase>(`/api/phrases`, { text });
+    await createPhrase(text);
     setText("");
     fetchPhrases();
   };
