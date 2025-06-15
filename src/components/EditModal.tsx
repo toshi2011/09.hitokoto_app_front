@@ -1,3 +1,4 @@
+
 // === apps/frontend/src/components/EditModal.tsx ===
 import React, { useState, useEffect } from 'react';
 import { Phrase } from '../api';

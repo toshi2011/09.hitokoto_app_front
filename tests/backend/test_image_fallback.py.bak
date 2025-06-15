@@ -1,6 +1,6 @@
 # === tests/backend/test_image_fallback.py ===
 import pytest
-from apps.backend.app.infrastructure.image_service import FallbackImageService, DummyImageService
+from app.infrastructure.image_service import FallbackImageService, DummyImageService
 
 @pytest.mark.asyncio
 async def test_fallback_returns_first_available(monkeypatch):

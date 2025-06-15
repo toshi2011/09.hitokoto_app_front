@@ -35,3 +35,19 @@ export default api;
 
 export const updatePhrase = (id: string, text: string) =>
   api.patch<Phrase>(`/phrases/${id}`, { text }).then((r) => r.data);
+
+// 追加: プロフィール保存
+export interface UserProfileIn {
+    line_id: string;
+    mbti: string;
+    birthplace?: string;
+    residence?: string;
+    gender?: string;
+    age?: number;
+    job?: string;
+    tone?: string;
+    style?: string;
+    options?: string[];
+  }
+  export const createUserProfile = (body: UserProfileIn) =>
+    api.post('/api/user_profiles', body);
