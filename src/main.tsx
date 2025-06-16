@@ -12,9 +12,11 @@ import { Toaster } from "@/components/ui/sonner";
     console.error("LIFF init failed", err);     // 開発デバッグ用
   }
   ReactDOM.createRoot(document.getElementById("root")!).render(
-    <React.StrictMode>
-    <App />
-    <Toaster richColors />   {/* これで全ページがトースト可 */}
-  </React.StrictMode>,
+      <React.StrictMode>
+        <BrowserRouter basename="/">        {/* ★ 追加 */}
+          <App />
+        </BrowserRouter>
+        <Toaster richColors />
+      </React.StrictMode>,
   );
 })();
