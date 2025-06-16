@@ -1,14 +1,13 @@
-// ===  apps/frontend/src/api.ts (Authorization ヘッダー自動付与) ===
+// ===  apps/frontend/src/api.ts (Authorization ヘッダー自動付与) ==
 import axios from 'axios';
+
+ const baseURL = import.meta.env.VITE_API_URL || window.location.origin;
 
 /**
  * Axios インスタンス
  * BASE_URL は .env で指定（NEXT_PUBLIC_API_URL など）
  */
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:9000',
-  timeout: 7000,
-});
+export const api = axios.create({ baseURL });
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("line_id_token");
