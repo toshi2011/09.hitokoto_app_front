@@ -1,5 +1,7 @@
 import api from './api';
 
+const BASE = import.meta.env.VITE_API_URL || window.location.origin;
+
 export interface StyleItem {
   key: string;
   label: string;
