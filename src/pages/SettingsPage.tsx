@@ -14,6 +14,7 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import classNames from "classnames"; // Tailwind のクラス合成
 
+
 /* ----------------------------- 型定義 ----------------------------- */
 type Form = {
   line_id: string;
@@ -53,18 +54,35 @@ export default function SettingsPage() {
 
   /* --------------------------- effects --------------------------- */
   useEffect(() => {
-    (async () => {
-      // LIFF で userId を取得
-      const ctxId = liff.getContext()?.userId;
-      const lineId =
-        ctxId || (await liff.getProfile()).userId; // 外部ブラウザ時フォールバック
-      setForm((f) => ({ ...f, line_id: lineId }));
-    })();
-
-    // マスタ取得
-    fetchStyles().then(setStyles);
-    // fetchTones().then(setTones);
-    fetchOptions().then(setOpts);
+    async function initLiffThenFetch() {
+      try {
+        await liff.init({
+          liffId: process.env.REACT_APP_LIFF_ID!,
+          withLoginOnExternalBrowser: true,
+        });
+        let profile = null;
+  
+        if (liff.isLoggedIn()) {
+          profile = await liff.getProfile();
+        } else {
+          await liff.login({ redirectUri: window.location.href });
+          profile = await liff.getProfile();
+        }
+  
+        console.log("LIFF Profile:", profile);
+        setForm(f => ({ ...f, line_id: profile.userId }));
+  
+      } catch (err) {
+        console.error("LIFF init/getProfile error:", err);
+      }
+  
+      // マスタ取得はLIFF処理後でもOK
+      fetchStyles().then(setStyles);
+      // fetchTones().then(setTones);
+      fetchOptions().then(setOpts);
+    }
+  
+    initLiffThenFetch();
   }, []);
 
   /* --------------------------- handlers --------------------------- */
