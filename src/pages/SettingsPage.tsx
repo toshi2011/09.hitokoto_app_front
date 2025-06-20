@@ -54,21 +54,27 @@ export default function SettingsPage() {
 
   /* --------------------------- effects --------------------------- */
   useEffect(() => {
-      async function initLiff() {
-          await liff.init({ liffId: process.env.REACT_APP_LIFF_ID!, withLoginOnExternalBrowser: true });
-          if (!liff.isLoggedIn()) {
-            await liff.login();
-          }
-          const profile = await liff.getProfile();
-          console.log("LIFF Profile:", profile);
-          setForm(f => ({ ...f, line_id: profile.userId }));
+    async function initLiff() {
+      try {
+        await liff.init({ liffId: import.meta.env.VITE_LIFF_ID! }); // ←ここ修正
+        if (!liff.isLoggedIn()) {
+          await liff.login();
         }
-        initLiff().catch(console.error);
-      // マスタ取得はLIFF処理後でもOK
-      fetchStyles().then(setStyles);
-      // fetchTones().then(setTones);
-      fetchOptions().then(setOpts);
-    
+        const profile = await liff.getProfile();
+        if (!profile.userId) {
+          alert("LINEアカウントIDが取得できません。LIFF権限・設定を確認してください");
+          return;
+        }
+        setForm(f => ({ ...f, line_id: profile.userId }));
+      } catch (err) {
+        alert("LIFF初期化エラー: " + (err as Error).message);
+        // デバッグ用
+        console.error("LIFF INIT ERROR:", err);
+      }
+    }
+    initLiff();
+    fetchStyles().then(setStyles);
+    fetchOptions().then(setOpts);
   }, []);
 
   /* --------------------------- handlers --------------------------- */
@@ -77,11 +83,15 @@ export default function SettingsPage() {
 
   /** 保存ボタン押下 */
   const submit = async () => {
+    if (!form.line_id) {
+      alert("LINEアカウント情報が取得できません。ページを再読込してください。");
+      return;
+    }
     setIsSaving(true);
     try {
       await createUserProfile(form);
       toast.success("設定を保存しました 🎉");
-      setDone(true);                // 完了画面へ
+      setDone(true);
     } catch (err) {
       console.error(err);
       toast.error("保存に失敗しました");
