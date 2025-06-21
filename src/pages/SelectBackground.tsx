@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Swiper, SwiperSlide } from "swiper/react";
 import "swiper/css";
-import axios from "axios";
+import api from "@/api";
 
 interface Props {
   phraseId: string;
@@ -15,7 +15,7 @@ export default function SelectBackground({ phraseId }: Props) {
   useEffect(() => {
     if (!phraseId) return;
     (async () => {
-      const r = await axios.get("/api/select", { params: { phrase_id: phraseId } });
+      const r = await api.get("/api/select", { params: { phrase_id: phraseId } });
       setImages(r.data.images);
       setContent(r.data.content_id);
     })();
@@ -25,7 +25,7 @@ export default function SelectBackground({ phraseId }: Props) {
   const choose = async (url: string) => {
     if (!contentId) return;
     const editorJson = JSON.stringify({ background: url, animations: [] });
-    await axios.put(`/api/contents/${contentId}`, {
+    await api.put(`/api/contents/${contentId}`, {
       image_url: url,
       editor_json: editorJson,   // ← 変数名合わせ
     });

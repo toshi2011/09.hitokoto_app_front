@@ -1,6 +1,7 @@
 {
-    "routes": {
-      "/*": "index.html"
-    }
-  }
+  "redirects": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
+
   
