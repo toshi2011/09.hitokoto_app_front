@@ -17,7 +17,8 @@ export default function App() {
 // URLパラメータを受け取るためのラッパー
 import { useParams } from "react-router-dom";
 function SelectBackgroundWrapper() {
-  const { phraseId } = useParams();
-  // phraseIdをそのままpropsに渡す
-  return <SelectBackground phraseId={phraseId!} />;
+  const { phraseId } = useParams<{ phraseId: string }>();
+  console.log("phraseId=", phraseId);   // ←ブラウザで確認
+  if (!phraseId) return <p>Param missing</p>;
+  return <SelectBackground phraseId={phraseId} />;
 }
