@@ -1,7 +1,9 @@
+import SelectBackground from "@/pages/SelectBackground"; // 追加
 import { Routes, Route } from "react-router-dom";
 import SettingsPage from "@/pages/SettingsPage";
 import DebugPhrases from "@/pages/DebugPhrases";          // 旧 App.tsx を 1:1 移動
-import SelectBackground from "@/pages/SelectBackground"; // 追加
+
+
 
 export default function App() {
   return (
