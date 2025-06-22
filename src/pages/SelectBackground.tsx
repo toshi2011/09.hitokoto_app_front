@@ -43,7 +43,7 @@ export default function SelectBackground({ phraseId }: Props) {
 
   const handleReachEnd = () => {
     if (hasMore && !loadingRef.current) {
-      const next = page  1;
+      const next = page  +1;
       setPage(next);
       fetchImages(next);
     }
