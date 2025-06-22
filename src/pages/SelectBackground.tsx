@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom"; // ← 追加
+import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { Swiper, SwiperSlide } from "swiper/react";
 import "swiper/css";
 import api from "@/api";
@@ -12,19 +12,46 @@ export default function SelectBackground({ phraseId }: Props) {
   const [images, setImages] = useState<string[]>([]);
   const [contentId, setContent] = useState<string>();
   const [saving, setSaving] = useState(false);
-  const navigate = useNavigate(); // ← 追加
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const navigate = useNavigate();
+  const loadingRef = useRef(false); // 二重fetch防止
 
-  /* 画像３枚を取得 */
-  useEffect(() => {
-    if (!phraseId) return;
-    (async () => {
-      const r = await api.get("/api/select", { params: { phrase_id: phraseId } });
-      setImages(r.data.images);
+  // ページ単位で画像をfetch（10枚ずつ追加）
+  const fetchImages = async (p: number) => {
+    if (loadingRef.current || !phraseId || !hasMore) return;
+    loadingRef.current = true;
+    try {
+      const r = await api.get("/api/select", {
+        params: { phrase_id: phraseId, page: p, per: 10 },
+      });
+      setImages((prev) => p === 1 ? r.data.images : [...prev, ...r.data.images]);
       setContent(r.data.content_id);
-    })();
+      if (r.data.images.length < 10) setHasMore(false);
+    } finally {
+      loadingRef.current = false;
+    }
+  };
+
+  // phraseIdが変わったら初期化
+  useEffect(() => {
+    setImages([]);
+    setPage(1);
+    setHasMore(true);
+    fetchImages(1);
+    // eslint-disable-next-line
   }, [phraseId]);
 
-  /* 背景選択 → contents 更新＋フォント編集画面へ遷移 */
+  // Swiper端到達時に次ページfetch
+  const handleReachEnd = () => {
+    if (hasMore && !loadingRef.current) {
+      const next = page + 1;
+      setPage(next);
+      fetchImages(next);
+    }
+  };
+
+  // 背景画像選択→API保存→編集画面遷移
   const handleSelect = async (url: string) => {
     if (!contentId) return;
     setSaving(true);
@@ -34,7 +61,6 @@ export default function SelectBackground({ phraseId }: Props) {
         image_url: url,
         editor_json: editorJson,
       });
-      // 編集画面へ遷移 (2-4-1仕様)
       navigate(`/edit/${contentId}`, { state: { imageUrl: url } });
     } catch (e) {
       alert("保存に失敗しました");
@@ -53,6 +79,7 @@ export default function SelectBackground({ phraseId }: Props) {
           320: { slidesPerView: 2 },
           640: { slidesPerView: 3 },
         }}
+        onReachEnd={handleReachEnd}
       >
         {images.map((url) => (
           <SwiperSlide key={url}>
