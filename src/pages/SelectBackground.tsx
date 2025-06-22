@@ -15,9 +15,8 @@ export default function SelectBackground({ phraseId }: Props) {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const navigate = useNavigate();
-  const loadingRef = useRef(false); // 二重fetch防止
+  const loadingRef = useRef(false);
 
-  // ページ単位で画像をfetch（10枚ずつ追加）
   const fetchImages = async (p: number) => {
     if (loadingRef.current || !phraseId || !hasMore) return;
     loadingRef.current = true;
@@ -33,7 +32,6 @@ export default function SelectBackground({ phraseId }: Props) {
     }
   };
 
-  // phraseIdが変わったら初期化
   useEffect(() => {
     setImages([]);
     setPage(1);
@@ -42,7 +40,6 @@ export default function SelectBackground({ phraseId }: Props) {
     // eslint-disable-next-line
   }, [phraseId]);
 
-  // Swiper端到達時に次ページfetch
   const handleReachEnd = () => {
     if (hasMore && !loadingRef.current) {
       const next = page + 1;
@@ -51,7 +48,6 @@ export default function SelectBackground({ phraseId }: Props) {
     }
   };
 
-  // 背景画像選択→API保存→編集画面遷移
   const handleSelect = async (url: string) => {
     if (!contentId) return;
     setSaving(true);
@@ -72,27 +68,31 @@ export default function SelectBackground({ phraseId }: Props) {
   return (
     <div className="p-4 space-y-4">
       <h2 className="text-xl font-bold text-center">背景画像を選んでください</h2>
-      <Swiper
-        spaceBetween={12}
-        slidesPerView={3}
-        breakpoints={{
-          320: { slidesPerView: 2 },
-          640: { slidesPerView: 3 },
-        }}
-        onReachEnd={handleReachEnd}
-      >
-        {images.map((url) => (
-          <SwiperSlide key={url}>
-            <img
-              src={url}
-              alt="背景候補"
-              className="w-full aspect-[3/2] object-cover cursor-pointer rounded-lg"
-              onClick={() => !saving && handleSelect(url)}
-              style={{ opacity: saving ? 0.5 : 1 }}
-            />
-          </SwiperSlide>
-        ))}
-      </Swiper>
+      <div className="w-full max-w-[360px] mx-auto">
+        <Swiper
+          spaceBetween={12}
+          slidesPerView={2}
+          breakpoints={{
+            320: { slidesPerView: 1 },
+            480: { slidesPerView: 2 },
+            640: { slidesPerView: 3 },
+          }}
+          onReachEnd={handleReachEnd}
+        >
+          {images.map((url) => (
+            <SwiperSlide key={url}>
+              <img
+                src={url}
+                alt="背景候補"
+                className="w-full aspect-[9/16] object-cover cursor-pointer rounded-lg"
+                onClick={() => !saving && handleSelect(url)}
+                style={{ opacity: saving ? 0.5 : 1 }}
+                draggable={false}
+              />
+            </SwiperSlide>
+          ))}
+        </Swiper>
+      </div>
     </div>
   );
 }
