@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Swiper, SwiperSlide } from "swiper/react";
 import "swiper/css";
 import api from "@/api";
+import { Loader2 } from "lucide-react";          // ← スピナー用:contentReference[oaicite:5]{index=5}
 
 interface Props {
   phraseId: string;
@@ -42,7 +43,7 @@ export default function SelectBackground({ phraseId }: Props) {
 
   const handleReachEnd = () => {
     if (hasMore && !loadingRef.current) {
-      const next = page + 1;
+      const next = page  1;
       setPage(next);
       fetchImages(next);
     }
@@ -68,6 +69,12 @@ export default function SelectBackground({ phraseId }: Props) {
   return (
     <div className="p-4 space-y-4">
       <h2 className="text-xl font-bold text-center">背景画像を選んでください</h2>
+      {/* 読み込み中インジケータ */}
+      {loadingRef.current && images.length === 0 && (
+        <div className="flex justify-center py-10">
+          <Loader2 className="h-8 w-8 animate-spin text-gray-500" />
+        </div>
+      )}
       <div className="w-full max-w-[360px] mx-auto">
         <Swiper
           spaceBetween={12}
@@ -91,6 +98,12 @@ export default function SelectBackground({ phraseId }: Props) {
               />
             </SwiperSlide>
           ))}
+          {/* 無限スクロール時のスピナー slide */}
+          {loadingRef.current && (
+            <SwiperSlide className="flex items-center justify-center">
+              <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+            </SwiperSlide>
+          )}          
         </Swiper>
       </div>
     </div>
