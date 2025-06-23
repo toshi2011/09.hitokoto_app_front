@@ -70,9 +70,9 @@ export default function SelectBackground({ phraseId }: Props) {
     <div className="p-4 space-y-4">
       <h2 className="text-xl font-bold text-center">背景画像を選んでください</h2>
       {/* 読み込み中インジケータ */}
-      {loadingRef.current && images.length === 0 && (
+      {loadingRef.current && (
         <div className="flex justify-center py-10">
-          <Loader2 className="h-8 w-8 animate-spin text-gray-500" />
+          <Loader2 className="h-8 w-8 motion-safe:animate-spin text-gray-500" />
         </div>
       )}
       <div className="w-full max-w-[360px] mx-auto">
