@@ -4,7 +4,8 @@ import { Swiper, SwiperSlide } from "swiper/react";
 import "swiper/css";
 import api from "@/api";
 import { Loader2 } from "lucide-react";          // ← スピナー用:contentReference[oaicite:5]{index=5}
-
+import { Loader } from "lucide-react";  // 汎用ロード用アイコン
+// import { LoaderCircle } from "lucide-react"; ※環境によっては使用可
 interface Props {
   phraseId: string;
 }
@@ -43,7 +44,7 @@ export default function SelectBackground({ phraseId }: Props) {
 
   const handleReachEnd = () => {
     if (hasMore && !loadingRef.current) {
-      const next = page  +1;
+      const next = page + 1;
       setPage(next);
       fetchImages(next);
     }
@@ -72,7 +73,7 @@ export default function SelectBackground({ phraseId }: Props) {
       {/* 読み込み中インジケータ */}
       {loadingRef.current && (
         <div className="flex justify-center py-10">
-          <Loader2 className="h-8 w-8 motion-safe:animate-spin text-gray-500" />
+          <Loader className="h-6 w-6 motion-safe:animate-spin text-gray-400" />
         </div>
       )}
       <div className="w-full max-w-[360px] mx-auto">
@@ -88,14 +89,22 @@ export default function SelectBackground({ phraseId }: Props) {
         >
           {images.map((url) => (
             <SwiperSlide key={url}>
+            <div className="aspect-[9/16] bg-gray-900 overflow-hidden rounded-lg">
               <img
                 src={url}
                 alt="背景候補"
-                className="w-full aspect-[9/16] object-cover cursor-pointer rounded-lg"
+                className="w-full h-full object-cover object-center"
+                onLoad={(e) => {
+                  // 横長判定: 高さが幅より小さい → contain & bg
+                  if ((e.target as HTMLImageElement).naturalHeight <
+                      (e.target as HTMLImageElement).naturalWidth) {
+                    (e.target as HTMLImageElement).className =
+                      "w-full h-full object-contain object-center bg-black";
+                  }
+                }}
                 onClick={() => !saving && handleSelect(url)}
-                style={{ opacity: saving ? 0.5 : 1 }}
-                draggable={false}
               />
+            </div>
             </SwiperSlide>
           ))}
           {/* 無限スクロール時のスピナー slide */}
