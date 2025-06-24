@@ -8,6 +8,16 @@ import { Toaster } from "@/components/ui/sonner";
 (async () => {
   try {
     await initLiff();                           // Mini-App 用初期化を待つ
+    /* ---------- 100vh バグ対策: 実高さを CSS 変数 --vh へ ---------- */
+    function setRealVH() {
+      const vh = window.innerHeight * 0.01;
+      document.documentElement.style.setProperty("--vh", `${vh}px`);
+    }
+    setRealVH();
+    window.addEventListener("resize", setRealVH);
+    window.addEventListener("orientationchange", setRealVH);
+    /* --------------------------------------------------------------- */    
+
   } catch (err) {
     console.error("LIFF init failed", err);     // 開発デバッグ用
   }
@@ -19,4 +29,5 @@ import { Toaster } from "@/components/ui/sonner";
         <Toaster richColors />
       </React.StrictMode>,
   );
+
 })();

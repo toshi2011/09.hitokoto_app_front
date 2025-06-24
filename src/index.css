@@ -130,3 +130,10 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* === 追加: 実測 vh 対応ユーティリティ ================= */
+.h-svh   { height: calc(var(--vh, 1vh) * 100); }  /* full */
+.max-h-svh { max-height: calc(var(--vh, 1vh) * 100); }
+/* Safe-area 下端（iPhone X〜） */
+.pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+/* =================================================== */
