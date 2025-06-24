@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import { api } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
-import "./index.css"; // フレーズドラフト用 CSS
+import "../index.css"; // フレーズドラフト用 CSS
 
 const PRESETS = {
   square: { w: 1080, h: 1080 },
