@@ -89,7 +89,7 @@ export default function SelectBackground({ phraseId }: Props) {
         >
           {images.map((url) => (
             <SwiperSlide key={url}>
-            <div className="aspect-[9/16] bg-gray-900 overflow-hidden rounded-lg">
+            <div className="aspect-[9/16] max-h-screen bg-gray-900 overflow-hidden rounded-lg">
               <img
                 src={url}
                 alt="背景候補"
