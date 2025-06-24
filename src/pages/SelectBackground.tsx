@@ -29,6 +29,7 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
   const [dragging, setDragging] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
+  const [draftText, setDraftText] = useState<string>("");
 
   const PER_PAGE = 10;
 
@@ -42,8 +43,10 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
       const { images: imgs, content_id } = res.data as {
         images: string[];
         content_id: string;
+        text?: string;
       };
       if (page === 1) setContentId(content_id);
+      if (page === 1 && res.data.text) setDraftText(res.data.text);
       setImages(prev => [...prev, ...imgs]);
       setPage(p => p + 1);
     } finally {
@@ -102,82 +105,95 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
   };
 
   return (
-    <div className="p-6 space-y-6">
-      <h1 className="text-2xl font-bold text-center">背景を選択</h1>
-
-      {/* フレーズドラフト */}
-      {phraseText && (
-        <div className={`phrase-draft ${mode}`}>
-          {phraseText}
+    <div className="h-dvh flex flex-col bg-white relative">
+      <h1 className="text-2xl font-bold text-center my-2">背景を選択</h1>
+      {/* ドラフトテキスト（phraseText/draftTextいずれか一方） */}
+      {(phraseText || draftText) && (
+        <div className={`phrase-draft ${mode} mb-2`}>
+          {phraseText || draftText}
         </div>
       )}
-
-      {/* プリセット＆縦横切替 */}
-      <div className="flex flex-wrap gap-2 justify-center">
+  
+      {/* プリセット＆縦横切替（画面上部に固定） */}
+      <div className="flex flex-wrap gap-2 justify-center mb-2">
         {Object.entries(PRESETS).map(([key]) => (
           <Button
-          key={key}
-          variant={selectedPreset === key ? "default" : "outline"}
-          size="sm"
-          onClick={() => setSelectedPreset(key as any)}
-        >
-          {key === 'square' ? '1:1' : key === 'fourFive' ? '4:5' : '9:19'}
-        </Button>
+            key={key}
+            variant={selectedPreset === key ? "default" : "outline"}
+            size="sm"
+            onClick={() => setSelectedPreset(key as any)}
+          >
+            {key === 'square' ? '1:1' : key === 'fourFive' ? '4:5' : '9:19'}
+          </Button>
         ))}
-        <Button onClick={() => setMode(m => (m === 'horizontal' ? 'vertical' : 'horizontal'))} size="sm">
+        <Button
+          onClick={() => setMode(m => (m === 'horizontal' ? 'vertical' : 'horizontal'))}
+          size="sm"
+        >
           {mode === 'horizontal' ? '縦書き' : '横書き'}
         </Button>
       </div>
-
-      {/* 画像グリッド */}
-      <div className="grid grid-cols-2 gap-2">
-        {images.map((url, i) => (
-          <button
-            key={url}
-            onClick={() => setChosen(url)}
-            className="relative group rounded-lg overflow-hidden border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-          >
-            <img
-              src={url}
-              alt="候補画像"
-              ref={i === 0 ? imgRef : undefined}
-              className="h-48 w-full object-cover group-hover:scale-105 transition-transform duration-300"
-              loading="lazy"
-              onMouseDown={handleMouseDown}
-              onMouseUp={handleMouseUp}
-              onMouseMove={handleMouseMove}
-            />
-            {chosen === url && (
-              <span className="absolute inset-0 bg-black/50 flex items-center justify-center text-white text-xl font-bold">
-                ✓
-              </span>
-            )}
-          </button>
-        ))}
+  
+      {/* スクロールエリア（画像リスト＋プレビュー） */}
+      <div className="flex-1 overflow-y-auto pb-44">
+        {/* 画像グリッド */}
+        <div className="grid grid-cols-2 gap-2">
+          {images.map((url, i) => (
+            <button
+              key={url}
+              onClick={() => setChosen(url)}
+              className={
+                "relative group rounded-lg overflow-hidden border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 " +
+                (chosen === url ? "ring-4 ring-blue-500 border-blue-500" : "")
+              }
+            >
+              <img
+                src={url}
+                alt="候補画像"
+                ref={i === 0 ? imgRef : undefined}
+                className="h-48 w-full object-cover group-hover:scale-105 transition-transform duration-300"
+                loading="lazy"
+                onMouseDown={handleMouseDown}
+                onMouseUp={handleMouseUp}
+                onMouseMove={handleMouseMove}
+              />
+              {chosen === url && (
+                <span className="absolute inset-0 bg-black/50 flex items-center justify-center text-white text-xl font-bold">
+                  ✓
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+  
+        {/* トリミングプレビュー */}
+        <div
+          style={{
+            width: PRESETS[selectedPreset].w / 4,
+            height: PRESETS[selectedPreset].h / 4,
+            overflow: 'hidden',
+            position: 'relative',
+            margin: '24px auto 0 auto'
+          }}
+        >
+          <canvas ref={canvasRef} style={{ position: 'absolute', top: 0, left: 0 }} />
+        </div>
       </div>
-
-      {/* トリミングプレビュー */}
-      <div
-        style={{
-          width: PRESETS[selectedPreset].w / 4,
-          height: PRESETS[selectedPreset].h / 4,
-          overflow: 'hidden',
-          position: 'relative',
-          margin: '0 auto'
-        }}
-      >
-        <canvas ref={canvasRef} style={{ position: 'absolute', top: 0, left: 0 }} />
-      </div>
-
-      <div className="flex justify-center space-x-2">
-        <Button disabled={!chosen} variant="secondary" onClick={handleCrop}>切り取り・保存</Button>
-        <Button disabled={!chosen} variant="outline" onClick={save}>選択背景だけ保存</Button>
-      </div>
-
-      <div className="flex justify-center">
-        {loading ? <Loader2 className="animate-spin" /> :
-          <Button variant="outline" onClick={load} size="sm">もっと見る</Button>}
+  
+      {/* 下部固定の操作ボタン */}
+      <div className="fixed bottom-0 left-0 w-full bg-white/90 p-4 pt-2 space-y-2 shadow-xl z-10">
+        <div className="flex justify-center space-x-2 mb-2">
+          <Button disabled={!chosen} variant="secondary" onClick={handleCrop}>切り取り・保存</Button>
+          <Button disabled={!chosen} variant="outline" onClick={save}>選択背景だけ保存</Button>
+        </div>
+        <div className="flex justify-center">
+          {loading ? (
+            <Loader2 className="animate-spin" />
+          ) : (
+            <Button variant="outline" onClick={load} size="sm">もっと見る</Button>
+          )}
+        </div>
       </div>
     </div>
-  );
+  );  
 }
