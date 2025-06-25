@@ -73,6 +73,9 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
   // ユーザー選択エリアをcanvasに描画（ドラッグ時 or 選択時）
   useEffect(() => {
     load();
+  }, [load]);
+
+  useEffect(() => {
     if (!cropRect || !chosen) return;
     const canvas  = canvasRef.current!;
     const imgEl   = imgRef.current!;
@@ -109,7 +112,7 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
 
   // --- handleMouseDown ---
   const handleMouseDown = (e: React.MouseEvent<HTMLImageElement>) => {
-  const { left, top } = e.currentTarget.getBoundingClientRect();
+    const { left, top } = e.currentTarget.getBoundingClientRect();
     setDragging(true);
     setCropRect({ x: e.clientX - left, y: e.clientY - top, w: 0, h: 0 });
   };
@@ -152,18 +155,35 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
   };
 
   return (
-    <div className="relative h-screen w-full overflow-hidden bg-background">
+    <div style={{ 
+      position: 'relative', 
+      height: '100vh', 
+      width: '100%', 
+      overflow: 'hidden', 
+      display: 'flex',
+      flexDirection: 'column'
+    }}>
   
       {/* ── 上部固定バー ── */}
-      <div className="fixed inset-x-0 top-0 bg-white/95 backdrop-blur border-b z-40">
+      <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        backdropFilter: 'blur(8px)',
+        borderBottom: '1px solid #e5e7eb',
+        zIndex: 1000,
+        padding: '0'
+      }}>
         <div className="flex flex-wrap justify-center gap-2 p-3">
           {Object.entries(PRESETS).map(([key]) => (
             <Button
               key={key}
               variant={selectedPreset === key ? "default" : "outline"}
               size="sm"
-              type="button"                              // ← ★ blank 画面対策
-              onClick={() => setSelectedPreset(key as any)}
+              type="button"
+              onClick={() => setSelectedPreset(key as keyof typeof PRESETS)}
             >
               {key === "square" ? "1:1" : key === "fourFive" ? "4:5" : "16:9"}
             </Button>
@@ -180,8 +200,17 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
       </div>
   
       {/* ── 画像リスト（メインコンテンツエリア）── */}
-      <div className="absolute inset-x-0 top-[120px] bottom-[80px] overflow-y-auto p-3 space-y-3">
-        <div className="grid grid-cols-2 gap-2">
+      <div style={{
+        position: 'absolute',
+        top: '120px',
+        left: 0,
+        right: 0,
+        bottom: '80px',
+        overflowY: 'auto',
+        WebkitOverflowScrolling: 'touch',
+        padding: '12px'
+      }}>
+        <div className="grid grid-cols-2 gap-2" style={{ marginBottom: '12px' }}>
           {images.map(url => (
             <button
               key={url}
@@ -217,7 +246,20 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
       </div>
   
       {/* ── 下部固定バー ── */}
-      <div className="fixed inset-x-0 bottom-0 bg-white/95 backdrop-blur border-t p-4 flex justify-center gap-3 z-40">
+      <div style={{
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        backdropFilter: 'blur(8px)',
+        borderTop: '1px solid #e5e7eb',
+        padding: '16px',
+        display: 'flex',
+        justifyContent: 'center',
+        gap: '12px',
+        zIndex: 1000
+      }}>
         <Button variant="secondary" disabled={!chosen} type="button" onClick={handleCrop}>
           切り取り・保存
         </Button>
@@ -236,6 +278,10 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
           />
         </div>
       )}
+
+      {/* 非表示のcanvas要素 */}
+      <canvas ref={canvasRef} style={{ display: 'none' }} />
+      <img ref={imgRef} style={{ display: 'none' }} alt="" />
     </div>
   );
 }
