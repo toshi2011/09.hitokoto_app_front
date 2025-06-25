@@ -112,7 +112,7 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
   const { left, top } = e.currentTarget.getBoundingClientRect();
     setDragging(true);
     setCropRect({ x: e.clientX - left, y: e.clientY - top, w: 0, h: 0 });
-};
+  };
 
   // --- handleMouseUp ---
   const handleMouseUp = () => setDragging(false);
@@ -124,8 +124,8 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
     setCropRect(r => r && ({ ...r,
         w: e.clientX - left - r.x,
         h: e.clientY - top  - r.y,
-  }));
-};
+    }));
+  };
 
   const handleCrop = () => {
     if (!canvasRef.current || !imgRef.current) return;
@@ -152,10 +152,10 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
   };
 
   return (
-    <div className="relative h-svh w-full overflow-hidden bg-background">
+    <div className="relative h-screen w-full overflow-hidden bg-background">
   
       {/* ── 上部固定バー ── */}
-      <div className="fixed inset-x-0 top-0 z-40 bg-white/95 backdrop-blur border-b">
+      <div className="fixed inset-x-0 top-0 bg-white/95 backdrop-blur border-b z-40">
         <div className="flex flex-wrap justify-center gap-2 p-3">
           {Object.entries(PRESETS).map(([key]) => (
             <Button
@@ -179,8 +179,8 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
         )}
       </div>
   
-      {/* ── 画像リスト（ヘッダ 56px + フッタ 72px ぶん余白） ── */}
-      <div className="absolute inset-x-0 top-[56px] bottom-[72px] overflow-y-auto p-3 space-y-3">
+      {/* ── 画像リスト（メインコンテンツエリア）── */}
+      <div className="absolute inset-x-0 top-[120px] bottom-[80px] overflow-y-auto p-3 space-y-3">
         <div className="grid grid-cols-2 gap-2">
           {images.map(url => (
             <button
@@ -217,11 +217,11 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
       </div>
   
       {/* ── 下部固定バー ── */}
-      <div className="fixed inset-x-0 bottom-0 z-40 bg-white/95 backdrop-blur border-t p-4 flex justify-center gap-3">
+      <div className="fixed inset-x-0 bottom-0 bg-white/95 backdrop-blur border-t p-4 flex justify-center gap-3 z-40">
         <Button variant="secondary" disabled={!chosen} type="button" onClick={handleCrop}>
           切り取り・保存
         </Button>
-        <Button variant="outline"   disabled={!chosen} type="button" onClick={save}>
+        <Button variant="outline" disabled={!chosen} type="button" onClick={save}>
           背景だけ保存
         </Button>
       </div>
@@ -238,5 +238,4 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
       )}
     </div>
   );
-  // --- ▲ ① B. ここまで新しい JSX ---
 }
