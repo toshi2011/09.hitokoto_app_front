@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { api } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
@@ -33,6 +34,8 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
   type Rect = { x: number; y: number; w: number; h: number };
   const [cropRect, setCropRect] = useState<Rect | null>(null);   // ← 半透明矩形
   const rectRef = useRef<HTMLDivElement>(null);                  // ← overlay 用
+  const chosenImgRef = useRef<HTMLImageElement | null>(null);
+  const [frame, setFrame] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
 
   const PER_PAGE = 10;
 
@@ -57,6 +60,24 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
     }
   }, [phraseId, page, loading]);
 
+  // 中央に固定された比率枠を計算
+  useLayoutEffect(() => {
+    if (!chosenImgRef.current) return;
+    const img = chosenImgRef.current;
+    const { width, height } = img.getBoundingClientRect();
+    const { w: pw, h: ph } = PRESETS[selectedPreset];
+    const ratio = pw / ph;
+    let w = width, h = width / ratio;
+    if (h > height) { h = height; w = height * ratio; }
+    setFrame({ x: (width - w) / 2, y: (height - h) / 2, w, h });
+  }, [chosen, selectedPreset]);
+
+  // frame更新時、cropRectを自動リセット
+  useEffect(() => {
+    if (frame) setCropRect(frame);
+  }, [frame]);
+
+  // ユーザー選択エリアをcanvasに描画（ドラッグ時 or 選択時）
   useEffect(() => {
     load();
     if (!cropRect || !chosen) return;
@@ -77,7 +98,6 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
         0, 0, canvas.width, canvas.height                 // dst
       );
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cropRect, chosen]);
 
   const save = async () => {
@@ -102,7 +122,7 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
 };
 
   // --- handleMouseUp ---
-const handleMouseUp = () => setDragging(false);
+  const handleMouseUp = () => setDragging(false);
 
   // --- handleMouseMove ---
   const handleMouseMove = (e: React.MouseEvent<HTMLImageElement>) => {
@@ -139,40 +159,33 @@ const handleMouseUp = () => setDragging(false);
   };
 
   return (
-    <div className="h-dvh flex flex-col bg-white relative">
-      <h1 className="text-2xl font-bold text-center my-2">背景を選択</h1>
-      {/* ドラフトテキスト（phraseText/draftTextいずれか一方） */}
-      {(phraseText || draftText) && (
-        <div className={`phrase-draft ${mode} mb-2`}>
-          {phraseText || draftText}
-        </div>
-      )}
-  
-      {/* プリセット＆縦横切替（画面上部に固定） */}
-      <div className="flex flex-wrap gap-2 justify-center mb-2 sticky top-0 z-10 bg-white/95 backdrop-blur">
-        {Object.entries(PRESETS).map(([key]) => (
-          <Button
-            key={key}
-            variant={selectedPreset === key ? "default" : "outline"}
-            size="sm"
-            onClick={() => setSelectedPreset(key as any)}
-          >
-            {key === 'square' ? '1:1' : key === 'fourFive' ? '4:5' : '9:19'}
+    <div className="flex flex-col h-dvh max-h-svh">
+      {/* ─── 上部固定ヘッダ ─── */}
+      <div className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b">
+        <div className="p-3 flex flex-wrap gap-2 justify-center">
+          {Object.entries(PRESETS).map(([key]) => (
+            <Button
+              key={key}
+              variant={selectedPreset === key ? "default" : "outline"}
+              size="sm"
+              onClick={() => setSelectedPreset(key as any)}
+            >
+              {key === "square" ? "1:1" : key === "fourFive" ? "4:5" : "16:9"}
+            </Button>
+          ))}
+          <Button onClick={() => setMode(m => m === "horizontal" ? "vertical" : "horizontal")} size="sm">
+            {mode === "horizontal" ? "縦書き" : "横書き"}
           </Button>
-        ))}
-        <Button
-          onClick={() => setMode(m => (m === 'horizontal' ? 'vertical' : 'horizontal'))}
-          size="sm"
-        >
-          {mode === 'horizontal' ? '縦書き' : '横書き'}
-        </Button>
+        </div>
+        {draftText && (
+          <div className={`phrase-draft ${mode} mb-2 text-center`}>{draftText}</div>
+        )}
       </div>
   
-      {/* スクロールエリア（画像リスト＋プレビュー） */}
-      <div className="flex-1 overflow-y-auto pb-44 relative z-0">
-        {/* 画像グリッド */}
+      {/* ─── スクロール領域（画像リスト） ─── */}
+      <div className="flex-1 overflow-y-auto p-3 space-y-3">
         <div className="grid grid-cols-2 gap-2">
-          {images.map((url, i) => (
+          {images.map((url) => (
             <button
               key={url}
               onClick={() => setChosen(url)}
@@ -184,28 +197,22 @@ const handleMouseUp = () => setDragging(false);
               <img
                 src={url}
                 alt="候補画像"
-                ref={i === 0 ? imgRef : undefined}
                 className="h-48 w-full object-cover group-hover:scale-105 transition-transform duration-300"
                 loading="lazy"
-                onMouseDown={handleMouseDown}
-                onMouseUp={handleMouseUp}
-                onMouseMove={handleMouseMove}
+                ref={el => { if (chosen === url) chosenImgRef.current = el; }}
               />
-
-              {cropRect && chosen === url && (
+              {/* ✔ トリミング枠 (選択画像のみ) */}
+              {frame && chosen === url && (
                 <div
-                  ref={rectRef}
+                  className="absolute border-4 border-yellow-400 bg-black/25 pointer-events-none"
                   style={{
-                    position: "absolute",
-                    left:   Math.min(cropRect.x, cropRect.x + cropRect.w),
-                    top:    Math.min(cropRect.y, cropRect.y + cropRect.h),
-                    width:  Math.abs(cropRect.w),
-                    height: Math.abs(cropRect.h),
+                    left: frame.x,
+                    top: frame.y,
+                    width: frame.w,
+                    height: frame.h,
                   }}
-                  className="bg-black/30 border-2 border-yellow-400 pointer-events-none"
                 />
               )}
-
               {chosen === url && (
                 <span className="absolute inset-0 bg-black/50 flex items-center justify-center text-white text-xl font-bold">
                   ✓
@@ -215,34 +222,21 @@ const handleMouseUp = () => setDragging(false);
           ))}
         </div>
   
-        {/* トリミングプレビュー */}
-        <div
-          style={{
-            width: PRESETS[selectedPreset].w / 4,
-            height: PRESETS[selectedPreset].h / 4,
-            overflow: 'hidden',
-            position: 'relative',
-            margin: '24px auto 0 auto'
-          }}
-        >
-          <canvas ref={canvasRef} style={{ position: 'absolute', top: 0, left: 0 }} />
-        </div>
-      </div>
-  
-      {/* 下部固定の操作ボタン */}
-      <div className="fixed bottom-0 left-0 w-full bg-white/95 backdrop-blur p-4 pt-2 space-y-2 shadow-xl z-20">
-        <div className="flex justify-center space-x-2 mb-2">
-          <Button disabled={!chosen} variant="secondary" onClick={handleCrop}>切り取り・保存</Button>
-          <Button disabled={!chosen} variant="outline" onClick={save}>選択背景だけ保存</Button>
-        </div>
-        <div className="flex justify-center">
+        {/* もっと見る */}
+        <div className="text-center py-4">
           {loading ? (
-            <Loader2 className="animate-spin" />
+            <Loader2 className="animate-spin inline" />
           ) : (
             <Button variant="outline" onClick={load} size="sm">もっと見る</Button>
           )}
         </div>
       </div>
+  
+      {/* ─── 下部固定フッタ ─── */}
+      <div className="sticky bottom-0 z-30 bg-white/95 backdrop-blur border-t p-4 flex justify-center gap-3">
+        <Button disabled={!chosen} variant="secondary" onClick={handleCrop}>切り取り・保存</Button>
+        <Button disabled={!chosen} variant="outline" onClick={save}>背景だけ保存</Button>
+      </div>
     </div>
-  );  
+  ); 
 }
