@@ -32,8 +32,8 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
   const imgRef = useRef<HTMLImageElement>(null);
   const [draftText, setDraftText] = useState<string>("");
   type Rect = { x: number; y: number; w: number; h: number };
-  const [cropRect, setCropRect] = useState<Rect | null>(null);   // ← 半透明矩形
-  const rectRef = useRef<HTMLDivElement>(null);                  // ← overlay 用
+  const [cropRect, setCropRect] = useState<Rect | null>(null);
+  const rectRef = useRef<HTMLDivElement>(null);
   const chosenImgRef = useRef<HTMLImageElement | null>(null);
   const [frame, setFrame] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
 
@@ -60,38 +60,64 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
     }
   }, [phraseId, page, loading]);
 
-  // 中央に固定された比率枠を計算
+  // 中央に固定された比率枠を計算（画像選択時のみ表示）
   useLayoutEffect(() => {
+    if (!chosen) {
+      setFrame(null);
+      return;
+    }
+    
     const { innerWidth: width, innerHeight: height } = window;
     const { w: pw, h: ph } = PRESETS[selectedPreset];
     const ratio = pw / ph;
-    let w = width, h = width / ratio;
-    if (h > height) { h = height; w = height * ratio; }
-    setFrame({ x: (width - w) / 2, y: (height - h) / 2, w, h });
-  }, [selectedPreset]);
+    
+    // 画面の80%を最大サイズとして計算
+    const maxWidth = width * 0.8;
+    const maxHeight = (height - 200) * 0.8; // 上下バー分を除く
+    
+    let w = maxWidth;
+    let h = w / ratio;
+    
+    if (h > maxHeight) {
+      h = maxHeight;
+      w = h * ratio;
+    }
+    
+    setFrame({ 
+      x: (width - w) / 2, 
+      y: ((height - 200) - h) / 2 + 120, // 上部バー分のオフセット
+      w, 
+      h 
+    });
+  }, [selectedPreset, chosen]);
 
-  // ユーザー選択エリアをcanvasに描画（ドラッグ時 or 選択時）
+  // 初回読み込み
   useEffect(() => {
     load();
-  }, [load]);
+  }, []);
 
+  // クロップ用canvas描画
   useEffect(() => {
     if (!cropRect || !chosen) return;
-    const canvas  = canvasRef.current!;
-    const imgEl   = imgRef.current!;
-    const ctx     = canvas.getContext("2d")!;
-    const scaleX  = imgEl.naturalWidth  / imgEl.clientWidth;
-    const scaleY  = imgEl.naturalHeight / imgEl.clientHeight;
+    const canvas = canvasRef.current;
+    const imgEl = chosenImgRef.current;
+    if (!canvas || !imgEl) return;
+    
+    const ctx = canvas.getContext("2d")!;
+    const scaleX = imgEl.naturalWidth / imgEl.clientWidth;
+    const scaleY = imgEl.naturalHeight / imgEl.clientHeight;
     const { x, y, w, h } = cropRect;
-    canvas.width  = w * scaleX;
+    
+    canvas.width = w * scaleX;
     canvas.height = h * scaleY;
-    const img     = new Image();
-    img.src       = chosen;
-    img.onload    = () => {
+    
+    const img = new Image();
+    img.src = chosen;
+    img.onload = () => {
       ctx.drawImage(
         img,
-        x * scaleX, y * scaleY, w * scaleX, h * scaleY,   // src
-        0, 0, canvas.width, canvas.height                 // dst
+        x * scaleX, y * scaleY, w * scaleX, h * scaleY,
+        0, 0, canvas.width, canvas.height
       );
     };
   }, [cropRect, chosen]);
@@ -100,7 +126,7 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
     if (!chosen || !contentId) return;
     await api.put(`/api/contents/${contentId}`, {
       image_url: chosen,
-      editor_json: "{}", // 編集結果は後で渡す
+      editor_json: "{}",
       status: "draft",
     });
     if ((window as any).liff?.closeWindow) {
@@ -110,48 +136,66 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
     }
   };
 
-  // --- handleMouseDown ---
   const handleMouseDown = (e: React.MouseEvent<HTMLImageElement>) => {
     const { left, top } = e.currentTarget.getBoundingClientRect();
     setDragging(true);
     setCropRect({ x: e.clientX - left, y: e.clientY - top, w: 0, h: 0 });
   };
 
-  // --- handleMouseUp ---
   const handleMouseUp = () => setDragging(false);
 
-  // --- handleMouseMove ---
   const handleMouseMove = (e: React.MouseEvent<HTMLImageElement>) => {
     if (!dragging || !cropRect) return;
     const { left, top } = e.currentTarget.getBoundingClientRect();
     setCropRect(r => r && ({ ...r,
         w: e.clientX - left - r.x,
-        h: e.clientY - top  - r.y,
+        h: e.clientY - top - r.y,
     }));
   };
 
   const handleCrop = () => {
-    if (!canvasRef.current || !imgRef.current) return;
-    const canvas = canvasRef.current;
+    if (!chosen || !chosenImgRef.current) return;
+    
+    const canvas = canvasRef.current!;
     const ctx = canvas.getContext('2d')!;
     const preset = PRESETS[selectedPreset];
-    const imgEl = imgRef.current;
+    const imgEl = chosenImgRef.current;
+    
     canvas.width = preset.w;
     canvas.height = preset.h;
-    const scale = imgEl.naturalWidth / imgEl.clientWidth;
-    ctx.drawImage(
-      imgEl,
-      -offset.x * scale,
-      -offset.y * scale,
-      imgEl.naturalWidth,
-      imgEl.naturalHeight
-    );
-    canvas.toBlob(blob => {
-      if (blob) {
-        // 保存ではなく next-step 呼び出しに変更可
-        save();
+    
+    // 画像をcanvasに描画
+    const img = new Image();
+    img.src = chosen;
+    img.onload = () => {
+      // 画像を中央に配置してクロップ
+      const imgAspect = img.width / img.height;
+      const canvasAspect = preset.w / preset.h;
+      
+      let drawWidth, drawHeight, drawX, drawY;
+      
+      if (imgAspect > canvasAspect) {
+        // 画像が横長の場合
+        drawHeight = preset.h;
+        drawWidth = drawHeight * imgAspect;
+        drawX = (preset.w - drawWidth) / 2;
+        drawY = 0;
+      } else {
+        // 画像が縦長の場合
+        drawWidth = preset.w;
+        drawHeight = drawWidth / imgAspect;
+        drawX = 0;
+        drawY = (preset.h - drawHeight) / 2;
       }
-    });
+      
+      ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
+      
+      canvas.toBlob(blob => {
+        if (blob) {
+          save();
+        }
+      });
+    };
   };
 
   return (
@@ -176,7 +220,13 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
         zIndex: 1000,
         padding: '0'
       }}>
-        <div className="flex flex-wrap justify-center gap-2 p-3">
+        <div style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          justifyContent: 'center',
+          gap: '8px',
+          padding: '12px'
+        }}>
           {Object.entries(PRESETS).map(([key]) => (
             <Button
               key={key}
@@ -184,25 +234,33 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
               size="sm"
               type="button"
               onClick={() => setSelectedPreset(key as keyof typeof PRESETS)}
+              style={{
+                padding: '6px 12px',
+                fontSize: '12px',
+                minWidth: '50px'
+              }}
             >
               {key === "square" ? "1:1" : key === "fourFive" ? "4:5" : "16:9"}
             </Button>
           ))}
-          <Button size="sm" type="button" onClick={() => setMode(m => m === "horizontal" ? "vertical" : "horizontal")}>
+          <Button 
+            size="sm" 
+            type="button" 
+            onClick={() => setMode(m => m === "horizontal" ? "vertical" : "horizontal")}
+            style={{
+              padding: '6px 12px',
+              fontSize: '12px'
+            }}
+          >
             {mode === "horizontal" ? "縦書き" : "横書き"}
           </Button>
         </div>
-  
-        {/* フレーズ下げてボタンに被らせない */}
-        {draftText && (
-          <div className={`phrase-draft ${mode}`}>{draftText}</div>
-        )}
       </div>
   
       {/* ── 画像リスト（メインコンテンツエリア）── */}
       <div style={{
         position: 'absolute',
-        top: '120px',
+        top: '70px',
         left: 0,
         right: 0,
         bottom: '80px',
@@ -210,26 +268,57 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
         WebkitOverflowScrolling: 'touch',
         padding: '12px'
       }}>
-        <div className="grid grid-cols-2 gap-2" style={{ marginBottom: '12px' }}>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(2, 1fr)',
+          gap: '8px',
+          marginBottom: '12px'
+        }}>
           {images.map(url => (
             <button
               key={url}
               type="button"
               onClick={() => setChosen(url)}
-              className={
-                "relative group rounded-lg overflow-hidden border focus-visible:ring-2 focus-visible:ring-ring/50 " +
-                (chosen === url ? "ring-4 ring-blue-500 border-blue-500" : "")
-              }
+              style={{
+                position: 'relative',
+                border: chosen === url ? '4px solid #3b82f6' : '1px solid #e5e7eb',
+                borderRadius: '8px',
+                overflow: 'hidden',
+                backgroundColor: 'transparent',
+                padding: '0',
+                cursor: 'pointer'
+              }}
             >
               <img
                 src={url}
                 alt="候補画像"
-                className="h-48 w-full object-cover group-hover:scale-105 transition-transform duration-300"
+                style={{
+                  height: '192px',
+                  width: '100%',
+                  objectFit: 'cover',
+                  transition: 'transform 0.3s ease',
+                  display: 'block'
+                }}
                 loading="lazy"
                 ref={el => { if (chosen === url) chosenImgRef.current = el; }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
               />
               {chosen === url && (
-                <span className="absolute inset-0 bg-black/50 flex items-center justify-center text-white text-xl font-bold">
+                <span style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'white',
+                  fontSize: '24px',
+                  fontWeight: 'bold'
+                }}>
                   ✓
                 </span>
               )}
@@ -238,12 +327,53 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
         </div>
   
         {/* もっと見る */}
-        <div className="text-center py-4">
-          {loading
-            ? <Loader2 className="inline animate-spin" />
-            : <Button variant="outline" size="sm" type="button" onClick={load}>もっと見る</Button>}
+        <div style={{ textAlign: 'center', padding: '16px 0' }}>
+          {loading ? (
+            <Loader2 style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }} />
+          ) : (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              type="button" 
+              onClick={load}
+              style={{
+                padding: '8px 16px',
+                fontSize: '14px'
+              }}
+            >
+              もっと見る
+            </Button>
+          )}
         </div>
       </div>
+
+      {/* ── フレーズドラフト（画像リスト上に固定表示）── */}
+      {draftText && (
+        <div 
+          className={`phrase-draft ${mode}`}
+          style={{
+            position: 'fixed',
+            top: '80px',
+            left: '20px',
+            right: '20px',
+            zIndex: 500,
+            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+            backdropFilter: 'blur(4px)',
+            padding: '12px 16px',
+            borderRadius: '8px',
+            border: '1px solid rgba(0, 0, 0, 0.1)',
+            fontSize: '14px',
+            lineHeight: '1.4',
+            textAlign: mode === 'horizontal' ? 'left' : 'center',
+            writingMode: mode === 'vertical' ? 'vertical-rl' : 'horizontal-tb',
+            maxHeight: '120px',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis'
+          }}
+        >
+          {draftText}
+        </div>
+      )}
   
       {/* ── 下部固定バー ── */}
       <div style={{
@@ -260,23 +390,48 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
         gap: '12px',
         zIndex: 1000
       }}>
-        <Button variant="secondary" disabled={!chosen} type="button" onClick={handleCrop}>
+        <Button 
+          variant="secondary" 
+          disabled={!chosen} 
+          type="button" 
+          onClick={handleCrop}
+          style={{
+            padding: '10px 20px',
+            fontSize: '14px'
+          }}
+        >
           切り取り・保存
         </Button>
-        <Button variant="outline" disabled={!chosen} type="button" onClick={save}>
+        <Button 
+          variant="outline" 
+          disabled={!chosen} 
+          type="button" 
+          onClick={save}
+          style={{
+            padding: '10px 20px',
+            fontSize: '14px'
+          }}
+        >
           背景だけ保存
         </Button>
       </div>
   
-      {/* ── トリミング枠（最前面・中央固定）── */}
-      {frame && (
-        <div className="fixed inset-0 z-30 pointer-events-none flex items-center justify-center">
-          <div
-            ref={rectRef}
-            className="border-4 border-yellow-400 bg-black/25"
-            style={{ width: frame.w, height: frame.h }}
-          />
-        </div>
+      {/* ── トリミング枠（画像選択時に表示）── */}
+      {frame && chosen && (
+        <div 
+          ref={rectRef}
+          style={{
+            position: 'fixed',
+            left: `${frame.x}px`,
+            top: `${frame.y}px`,
+            width: `${frame.w}px`,
+            height: `${frame.h}px`,
+            border: '4px solid #facc15',
+            backgroundColor: 'rgba(0, 0, 0, 0.25)',
+            zIndex: 800,
+            pointerEvents: 'none'
+          }}
+        />
       )}
 
       {/* 非表示のcanvas要素 */}
