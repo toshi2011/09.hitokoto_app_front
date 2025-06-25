@@ -62,20 +62,13 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
 
   // 中央に固定された比率枠を計算
   useLayoutEffect(() => {
-    if (!chosenImgRef.current) return;
-    const img = chosenImgRef.current;
-    const { width, height } = img.getBoundingClientRect();
+    const { innerWidth: width, innerHeight: height } = window;
     const { w: pw, h: ph } = PRESETS[selectedPreset];
     const ratio = pw / ph;
     let w = width, h = width / ratio;
     if (h > height) { h = height; w = height * ratio; }
     setFrame({ x: (width - w) / 2, y: (height - h) / 2, w, h });
-  }, [chosen, selectedPreset]);
-
-  // frame更新時、cropRectを自動リセット
-  useEffect(() => {
-    if (frame) setCropRect(frame);
-  }, [frame]);
+  }, [selectedPreset]);
 
   // ユーザー選択エリアをcanvasに描画（ドラッグ時 or 選択時）
   useEffect(() => {
@@ -159,38 +152,43 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
   };
 
   return (
-    <div className="flex flex-col h-dvh max-h-svh">
-      {/* ─── 上部固定ヘッダ ─── */}
-      <div className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b">
-        <div className="p-3 flex flex-wrap gap-2 justify-center">
+    <div className="relative h-svh w-full overflow-hidden bg-background">
+  
+      {/* ── 上部固定バー ── */}
+      <div className="fixed inset-x-0 top-0 z-40 bg-white/95 backdrop-blur border-b">
+        <div className="flex flex-wrap justify-center gap-2 p-3">
           {Object.entries(PRESETS).map(([key]) => (
             <Button
               key={key}
               variant={selectedPreset === key ? "default" : "outline"}
               size="sm"
+              type="button"                              // ← ★ blank 画面対策
               onClick={() => setSelectedPreset(key as any)}
             >
               {key === "square" ? "1:1" : key === "fourFive" ? "4:5" : "16:9"}
             </Button>
           ))}
-          <Button onClick={() => setMode(m => m === "horizontal" ? "vertical" : "horizontal")} size="sm">
+          <Button size="sm" type="button" onClick={() => setMode(m => m === "horizontal" ? "vertical" : "horizontal")}>
             {mode === "horizontal" ? "縦書き" : "横書き"}
           </Button>
         </div>
+  
+        {/* フレーズ下げてボタンに被らせない */}
         {draftText && (
-          <div className={`phrase-draft ${mode} mb-2 text-center`}>{draftText}</div>
+          <div className={`phrase-draft ${mode}`}>{draftText}</div>
         )}
       </div>
   
-      {/* ─── スクロール領域（画像リスト） ─── */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+      {/* ── 画像リスト（ヘッダ 56px + フッタ 72px ぶん余白） ── */}
+      <div className="absolute inset-x-0 top-[56px] bottom-[72px] overflow-y-auto p-3 space-y-3">
         <div className="grid grid-cols-2 gap-2">
-          {images.map((url) => (
+          {images.map(url => (
             <button
               key={url}
+              type="button"
               onClick={() => setChosen(url)}
               className={
-                "relative group rounded-lg overflow-hidden border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 " +
+                "relative group rounded-lg overflow-hidden border focus-visible:ring-2 focus-visible:ring-ring/50 " +
                 (chosen === url ? "ring-4 ring-blue-500 border-blue-500" : "")
               }
             >
@@ -201,18 +199,6 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
                 loading="lazy"
                 ref={el => { if (chosen === url) chosenImgRef.current = el; }}
               />
-              {/* ✔ トリミング枠 (選択画像のみ) */}
-              {frame && chosen === url && (
-                <div
-                  className="absolute border-4 border-yellow-400 bg-black/25 pointer-events-none"
-                  style={{
-                    left: frame.x,
-                    top: frame.y,
-                    width: frame.w,
-                    height: frame.h,
-                  }}
-                />
-              )}
               {chosen === url && (
                 <span className="absolute inset-0 bg-black/50 flex items-center justify-center text-white text-xl font-bold">
                   ✓
@@ -224,19 +210,33 @@ export default function SelectBackground({ phraseId, phraseText }: Props) {
   
         {/* もっと見る */}
         <div className="text-center py-4">
-          {loading ? (
-            <Loader2 className="animate-spin inline" />
-          ) : (
-            <Button variant="outline" onClick={load} size="sm">もっと見る</Button>
-          )}
+          {loading
+            ? <Loader2 className="inline animate-spin" />
+            : <Button variant="outline" size="sm" type="button" onClick={load}>もっと見る</Button>}
         </div>
       </div>
   
-      {/* ─── 下部固定フッタ ─── */}
-      <div className="sticky bottom-0 z-30 bg-white/95 backdrop-blur border-t p-4 flex justify-center gap-3">
-        <Button disabled={!chosen} variant="secondary" onClick={handleCrop}>切り取り・保存</Button>
-        <Button disabled={!chosen} variant="outline" onClick={save}>背景だけ保存</Button>
+      {/* ── 下部固定バー ── */}
+      <div className="fixed inset-x-0 bottom-0 z-40 bg-white/95 backdrop-blur border-t p-4 flex justify-center gap-3">
+        <Button variant="secondary" disabled={!chosen} type="button" onClick={handleCrop}>
+          切り取り・保存
+        </Button>
+        <Button variant="outline"   disabled={!chosen} type="button" onClick={save}>
+          背景だけ保存
+        </Button>
       </div>
+  
+      {/* ── トリミング枠（最前面・中央固定）── */}
+      {frame && (
+        <div className="fixed inset-0 z-30 pointer-events-none flex items-center justify-center">
+          <div
+            ref={rectRef}
+            className="border-4 border-yellow-400 bg-black/25"
+            style={{ width: frame.w, height: frame.h }}
+          />
+        </div>
+      )}
     </div>
-  ); 
+  );
+  // --- ▲ ① B. ここまで新しい JSX ---
 }
