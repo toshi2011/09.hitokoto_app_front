@@ -168,13 +168,68 @@ export default function SelectBackground({ phraseId }: Props) {
     }
   };
 
-  /* ───── 保存→編集 ───── */
-  const goEdit = () => contentId && navigate(`/edit/${contentId}`, { state: { bg: chosen } });
-  const cropAndSave = async () => {
-    if (!chosen || !contentId) return;
-    await api.put(`/api/contents/${contentId}`, { image_url: chosen, status: "draft" });
-    goEdit();
-  };
+/* ───── 保存→編集 ───── */
+const goEdit = (bg: string | null = chosen) =>
+  contentId && navigate(`/edit/${contentId}`, { state: { bg } });
+
+/** Canvas で実際に切り抜き → Blob URL を返す */
+const renderCroppedImage = async (): Promise<string | null> => {
+  if (!imgRef.current || !canvasRef.current) return null;
+
+  const img     = imgRef.current;
+  const canvas  = canvasRef.current;
+  const ctx     = canvas.getContext("2d")!;
+  const rect    = img.getBoundingClientRect();
+  const factorX = img.naturalWidth  / rect.width;
+  const factorY = img.naturalHeight / rect.height;
+
+  // ① ユーザがドラッグした矩形優先
+  let { x, y, w, h } = crop ?? { x: 0, y: 0, w: rect.width, h: rect.height };
+  if (w < 0) { x += w; w = -w; }
+  if (h < 0) { y += h; h = -h; }
+
+  const sx = x * factorX;
+  const sy = y * factorY;
+  const sw = w * factorX;
+  const sh = h * factorY;
+
+  // ② 出力サイズは幅 1080px 固定
+  canvas.width  = 1080;
+  canvas.height = Math.round((1080 * sh) / sw);
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+
+  return await new Promise<string>((res) =>
+    canvas.toBlob((b) => res(URL.createObjectURL(b!)), "image/jpeg", 0.9)
+  );
+};
+
+const cropAndSave = async () => {
+  if (!contentId) return;
+
+  /* ----- 画像を実際に切り抜く ----- */
+  const croppedUrl = await renderCroppedImage();
+  if (!croppedUrl) return;
+
+  /* ----- 編集用メタを JSON で保持 ----- */
+  const editorJSON = JSON.stringify({
+    draft_text: draftText,
+    crop: crop,
+    scale,
+    imgPos,
+    preset: presetKey,
+    mode,
+  });
+
+  /* ----- DB 更新 ----- */
+  await api.put(`/api/contents/${contentId}`, {
+    image_url: croppedUrl,
+    editor_json: editorJSON,
+    status: "draft",
+  });
+
+  /* ----- 次画面へ ----- */
+  goEdit(croppedUrl);
+};
 
   /* ──────────── JSX ───────────── */
   return (
@@ -235,7 +290,7 @@ export default function SelectBackground({ phraseId }: Props) {
           {/* bottom bar */}
           <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 40, background: "rgba(255,255,255,.92)", borderTop: "1px solid #e5e7eb", display: "flex", gap: 12, justifyContent: "center", padding: 12 }}>
             <Button size="sm" variant="secondary" onClick={cropAndSave}>切り抜き→編集へ</Button>
-            <Button size="sm" variant="outline" onClick={goEdit}>背景だけ保存</Button>
+            <Button size="sm" variant="outline" onClick={() => goEdit()}>背景だけ保存</Button>
           </div>
         </>
       )}
