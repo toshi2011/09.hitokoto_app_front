@@ -18,7 +18,7 @@ import "../index.css";
 const PRESETS = {
   square: { ratio: 1, label: "1:1" },
   fourFive: { ratio: 4 / 5, label: "4:5" },
-  sixteenNine: { ratio: 16 / 9, label: "16:9" },
+  sixteenNine: { ratio: 9 / 16, label: "9:16" },
 } as const;
 const PER_PAGE = 10;
 
