@@ -1,5 +1,3 @@
-// === apps/frontend/src/pages/SelectBackground.tsx =========================
-// 2025‑06‑26 merge – pinch‑zoom + /edit navigation + duplicate fix
 import React, {
   useCallback,
   useEffect,
@@ -12,68 +10,63 @@ import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import "../index.css";
+import {
+  calculateHashesBatch,
+  extractImageIdentifier,
+} from "@/utils/imageHash";
 
-/* ──────────────── 定数 / ヘルパ ────────────────── */
+/* ──────────────── 定数 ─────────────────────────── */
 const PRESETS = {
   square: { w: 1080, h: 1080 },
   fourFive: { w: 1080, h: 1350 },
   nineNineteen: { w: 1080, h: 1920 },
 } as const;
-
 const PER_PAGE = 10;
-const seenRef = new Set<string>();       // ★ グローバルで保持（コンポ再作成でも有効）
 
-/**
- * Unsplash 等の URL 末尾 ?w=1080&… を削除して正規化。
- */
-function normalizeUrl(raw: string): string {
-  try {
-    const u = new URL(raw);
-    u.search = "";              // クエリ文字列を除去して比較
-    return u.toString();
-  } catch {
-    return raw.split("?")[0];
-  }
+/* ──────────────── 型 ───────────────────────────── */
+interface Props {
+  phraseId: string;
 }
 
-/* ──────────────── 型定義 ───────────────────────── */
-type Props = {
-  phraseId: string;
-};
+/* ──────────────── util ─────────────────────────── */
+const seenId = new Set<string>(); // URL ID 重複判定
+const seenHash = new Set<string>(); // 軽量ハッシュ重複判定
 
-/* ────────────────────────────────────────────────── */
+function clamp(n: number, min = 0.5, max = 5) {
+  return Math.min(max, Math.max(min, n));
+}
+
+/* ─────────────────────────────────────────────────── */
 export default function SelectBackground({ phraseId }: Props) {
-  /* ─ state ─────────────────────────────── */
+  /* -------   共通 state  ------- */
   const [images, setImages] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-
   const [view, setView] = useState<"grid" | "detail">("grid");
   const [chosen, setChosen] = useState<string | null>(null);
   const [contentId, setContentId] = useState<string | null>(null);
+  const [draftText, setDraftText] = useState<string>("");
 
-  // crop
+  /* -------   クロップ state ------- */
   const [selectedPreset, setSelectedPreset] =
     useState<keyof typeof PRESETS>("square");
+  const [cropRect, setCropRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
   const [mode, setMode] = useState<"horizontal" | "vertical">("horizontal");
-  const [cropRect, setCropRect] = useState<{
-    x: number;
-    y: number;
-    w: number;
-    h: number;
-  } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chosenImgRef = useRef<HTMLImageElement | null>(null);
+  /* フレーム可視用 */
+  const [showFrame, setShowFrame] = useState(false);
 
-  // pinch‑zoom（DETAIL 画面専用）
+  /* -------   ピンチズーム state ------- */
   const [scale, setScale] = useState(1);
-  const lastScaleRef = useRef(1);
-  const pointers = useRef<Map<number, React.PointerEvent>>(new Map());
+  const lastScale = useRef(1);
+  const pointers = useRef<Map<number, PointerEvent>>(new Map());
 
   const navigate = useNavigate();
 
-  /* ──────────── 画像ロード ───────────── */
+  /* ──────────── 画像読み込み ───────────── */
   const load = useCallback(async () => {
     if (loading || !hasMore) return;
     setLoading(true);
@@ -81,19 +74,27 @@ export default function SelectBackground({ phraseId }: Props) {
       const res = await api.get("/api/select", {
         params: { phrase_id: phraseId, page, per: PER_PAGE },
       });
-      const { images: rawImgs, content_id } = res.data as {
-        images: string[];
-        content_id: string;
-      };
-      if (page === 1) setContentId(content_id);
-
-      // ---------- 重複排除 ---------- //
-      const uniq = rawImgs.filter((u) => {
-        const key = normalizeUrl(u);
-        if (seenRef.has(key)) return false;
-        seenRef.add(key);
+      const { images: rawImgs, content_id, text } = res.data as any;
+      if (page === 1) {
+        setContentId(content_id);
+        if (text) setDraftText(text);
+      }
+      // --- 1st: URL ID 重複除外 ---
+      const stage1 = rawImgs.filter((u: string) => {
+        const id = extractImageIdentifier(u);
+        if (seenId.has(id)) return false;
+        seenId.add(id);
         return true;
       });
+      // --- 2nd: 軽量ハッシュ重複除外 ---
+      const hashResults = await calculateHashesBatch(stage1);
+      const uniq = hashResults.filter((r) => {
+        if (!r.hash) return true;
+        if (seenHash.has(r.hash)) return false;
+        seenHash.add(r.hash);
+        return true;
+      }).map((r) => r.url);
+
       setImages((prev) => [...prev, ...uniq]);
       setPage((p) => p + 1);
       if (uniq.length === 0) setHasMore(false);
@@ -107,256 +108,116 @@ export default function SelectBackground({ phraseId }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* ──────────── crop canvas 描画 ─────────── */
-  useEffect(() => {
-    if (!cropRect || !chosen || !chosenImgRef.current) return;
-    const canvas = canvasRef.current!;
-    const imgEl = chosenImgRef.current!;
-    const ctx = canvas.getContext("2d")!;
-
-    const scaleX = imgEl.naturalWidth / imgEl.clientWidth;
-    const scaleY = imgEl.naturalHeight / imgEl.clientHeight;
-    const { x, y, w, h } = cropRect;
-
-    canvas.width = w * scaleX;
-    canvas.height = h * scaleY;
-
-    const img = new Image();
-    img.src = chosen;
-    img.onload = () => {
-      ctx.drawImage(
-        img,
-        x * scaleX,
-        y * scaleY,
-        w * scaleX,
-        h * scaleY,
-        0,
-        0,
-        canvas.width,
-        canvas.height,
-      );
-    };
-  }, [cropRect, chosen]);
-
-  /* ──────────── 保存 & /edit 遷移 ────────── */
-  const routeToEdit = useCallback(() => {
-    if (!contentId) return;
-    navigate(`/edit/${contentId}`, {
-      state: { backgroundUrl: chosen },
-      replace: false,
-    });
-  }, [navigate, contentId, chosen]);
-
-  const handleCropAndSave = async () => {
-    if (!chosen || !contentId) return;
-    // ※ 本来は Blob をアップロード → 下書き保存
-    await api.put(`/api/contents/${contentId}`, {
-      image_url: chosen,
-      editor_json: "{}",
-      status: "draft",
-    });
-    routeToEdit();
+  /* ──────────── ドラッグ矩形 ───────────── */
+  const onMouseDown = (e: React.MouseEvent<HTMLImageElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setDragging(true);
+    setCropRect({ x: e.clientX - rect.left, y: e.clientY - rect.top, w: 0, h: 0 });
   };
+  const onMouseMove = (e: React.MouseEvent<HTMLImageElement>) => {
+    if (!dragging || !cropRect) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    setCropRect((r) => r && { ...r, w: e.clientX - rect.left - r.x, h: e.clientY - rect.top - r.y });
+  };
+  const onMouseUp = () => setDragging(false);
 
-  /* ──────────── pointer pinch handlers ───── */
-  const onPointerDown = (e: React.PointerEvent) => {
+  /* ──────────── ピンチズーム ────────────── */
+  const onPtrDown = (e: React.PointerEvent) => {
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    pointers.current.set(e.pointerId, e);
+    pointers.current.set(e.pointerId, e.nativeEvent);
   };
-  const onPointerMove = (e: React.PointerEvent) => {
+  const onPtrMove = (e: React.PointerEvent) => {
     if (!pointers.current.has(e.pointerId)) return;
-    pointers.current.set(e.pointerId, e);
+    pointers.current.set(e.pointerId, e.nativeEvent);
     if (pointers.current.size === 2) {
-      const evts = [...pointers.current.values()];
-      const dist = Math.hypot(
-        evts[0].clientX - evts[1].clientX,
-        evts[0].clientY - evts[1].clientY,
-      );
-      const start = (evts[0] as any).startDist ?? dist;
-      if (!(evts[0] as any).startDist) {
-        (evts[0] as any).startDist = dist;
-        (evts[1] as any).startDist = dist;
-        lastScaleRef.current = scale;
+      const [p1, p2] = [...pointers.current.values()];
+      const dist = Math.hypot(p1.clientX - p2.clientX, p1.clientY - p2.clientY);
+      const start = (p1 as any).startDist ?? dist;
+      if (!(p1 as any).startDist) {
+        (p1 as any).startDist = (p2 as any).startDist = dist;
+        lastScale.current = scale;
       }
-      const next = Math.min(5, Math.max(1, (dist / start) * lastScaleRef.current));
+      const next = clamp((dist / start) * lastScale.current, 0.5, 5);
       setScale(next);
     }
   };
-  const onPointerUp = (e: React.PointerEvent) => {
+  const onPtrUp = (e: React.PointerEvent) => {
     pointers.current.delete(e.pointerId);
     if (pointers.current.size < 2) {
-      // reset startDist for next gesture
-      pointers.current.forEach((v) => {
-        delete (v as any).startDist;
-      });
+      pointers.current.forEach((p) => delete (p as any).startDist);
     }
   };
 
-  /* ──────────── Render ───────────────────── */
+  /* ──────────── 保存 → 編集画面へ ─────────── */
+  const goEdit = () => {
+    if (!contentId) return;
+    navigate(`/edit/${contentId}`, { state: { bg: chosen } });
+  };
+  const handleCropSave = async () => {
+    if (!chosen || !contentId) return;
+    await api.put(`/api/contents/${contentId}`, { image_url: chosen, editor_json: "{}", status: "draft" });
+    goEdit();
+  };
+
+  /* ──────────── JSX ─────────────────────── */
   return (
-    <div
-      style={{ position: "relative", width: "100%", height: "100vh", overflow: "hidden" }}
-    >
-      {/* ========= GRID VIEW ========= */}
+    <div style={{ position: "relative", width: "100%", height: "100vh", overflow: "hidden" }}>
+      {/* ---------- GRID ---------- */}
       {view === "grid" && (
-        <>
-          {/* 画像リスト */}
-          <div
-            style={{
-              position: "absolute",
-              top: 0,
-              bottom: 0,
-              left: 0,
-              right: 0,
-              overflowY: "auto",
-              padding: "12px",
-            }}
-          >
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(2,1fr)",
-                gap: "8px",
-              }}
-            >
-              {images.map((url) => (
-                <button
-                  key={url}
-                  type="button"
-                  onClick={() => {
-                    setChosen(url);
-                    setView("detail");
-                    setScale(1);
-                  }}
-                  style={{
-                    border: "1px solid #e5e7eb",
-                    borderRadius: 8,
-                    overflow: "hidden",
-                    padding: 0,
-                    background: "transparent",
-                  }}
-                >
-                  <img
-                    src={url}
-                    style={{ width: "100%", height: 192, objectFit: "cover" }}
-                    loading="lazy"
-                  />
-                </button>
-              ))}
-            </div>
-            {/* もっと見る */}
-            <div style={{ textAlign: "center", padding: "16px 0" }}>
-              {loading ? (
-                <Loader2 style={{ animation: "spin 1s linear infinite" }} />
-              ) : (
-                <Button size="sm" variant="outline" onClick={load} disabled={!hasMore}>
-                  {hasMore ? "もっと見る" : "これ以上ありません"}
-                </Button>
-              )}
-            </div>
+        <div style={{ position: "absolute", inset: 0, overflowY: "auto", padding: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8 }}>
+            {images.map((url) => (
+              <button key={url} type="button" style={{ padding: 0, border: 0 }} onClick={() => { setChosen(url); setView("detail"); setScale(1); setShowFrame(false); }}>
+                <img src={url} loading="lazy" style={{ width: "100%", height: 192, objectFit: "cover" }} />
+              </button>
+            ))}
           </div>
-        </>
+          <div style={{ textAlign: "center", padding: "16px 0" }}>
+            {loading ? <Loader2 className="animate-spin inline" /> : <Button size="sm" variant="outline" onClick={load} disabled={!hasMore}>{hasMore ? "もっと見る" : "これ以上ありません"}</Button>}
+          </div>
+        </div>
       )}
 
-      {/* ========= DETAIL VIEW ========= */}
+      {/* ---------- DETAIL ---------- */}
       {view === "detail" && chosen && (
         <>
           {/* top bar */}
-          <div
-            style={{
-              position: "fixed",
-              top: 0,
-              left: 0,
-              right: 0,
-              background: "rgba(255,255,255,.9)",
-              borderBottom: "1px solid #e5e7eb",
-              zIndex: 20,
-              display: "flex",
-              gap: 8,
-              padding: 8,
-              justifyContent: "space-between",
-            }}
-          >
+          <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 50, background: "rgba(255,255,255,.9)", borderBottom: "1px solid #e5e7eb", display: "flex", flexWrap: "wrap", gap: 8, padding: 8 }}>
             <Button size="sm" variant="outline" onClick={() => setView("grid")}>戻る</Button>
-            <div style={{ display: "flex", gap: 8 }}>
-              {Object.entries(PRESETS).map(([k]) => (
-                <Button
-                  key={k}
-                  size="sm"
-                  variant={selectedPreset === k ? "default" : "outline"}
-                  onClick={() => setSelectedPreset(k as keyof typeof PRESETS)}
-                >
-                  {k === "square" ? "1:1" : k === "fourFive" ? "4:5" : "16:9"}
-                </Button>
-              ))}
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setMode((m) => (m === "horizontal" ? "vertical" : "horizontal"))}
-              >
-                {mode === "horizontal" ? "縦書き" : "横書き"}
+            {Object.entries(PRESETS).map(([k]) => (
+              <Button key={k} size="sm" variant={selectedPreset === k ? "default" : "outline"} onClick={() => { setSelectedPreset(k as any); setShowFrame(true); }}>
+                {k === "square" ? "1:1" : k === "fourFive" ? "4:5" : "16:9"}
               </Button>
-            </div>
+            ))}
+            <Button size="sm" variant="outline" onClick={() => setMode((m) => (m === "horizontal" ? "vertical" : "horizontal"))}>
+              {mode === "horizontal" ? "縦書き" : "横書き"}
+            </Button>
           </div>
+
+          {/* phrase draft */}
+          {draftText && (
+            <p className={`phrase-draft ${mode}`} style={{ position: "fixed", top: 52, left: 8, right: 8, zIndex: 45 }}>{draftText}</p>
+          )}
 
           {/* image container */}
-          <div
-            style={{
-              position: "absolute",
-              top: 48,
-              bottom: 0,
-              left: 0,
-              right: 0,
-              overflow: "auto",
-              touchAction: "none",
-            }}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
-            onPointerCancel={onPointerUp}
-          >
-            <img
-              ref={(el) => {
-                if (el) chosenImgRef.current = el;
-              }}
-              src={chosen}
-              alt="選択画像"
-              style={{
-                display: "block",
-                transform: `scale(${scale})`,
-                transformOrigin: "center top",
-                maxWidth: "none", // 自然サイズ
-                maxHeight: "none",
-              }}
-              draggable={false}
-            />
+          <div style={{ position: "absolute", inset: "52px 0 60px", overflow: "auto", touchAction: "none" }} onPointerDown={onPtrDown} onPointerMove={onPtrMove} onPointerUp={onPtrUp} onPointerCancel={onPtrUp}>
+            <img ref={(el) => { if (el) chosenImgRef.current = el; }} src={chosen} alt="selected" style={{ transform: `scale(${scale})`, transformOrigin: "center top", maxWidth: "none", maxHeight: "none", userSelect: "none" }} onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} draggable={false} />
           </div>
 
-          {/* bottom actions */}
-          <div
-            style={{
-              position: "fixed",
-              bottom: 0,
-              left: 0,
-              right: 0,
-              background: "rgba(255,255,255,.95)",
-              borderTop: "1px solid #e5e7eb",
-              display: "flex",
-              gap: 12,
-              justifyContent: "center",
-              padding: "12px 0",
-            }}
-          >
-            <Button size="sm" variant="secondary" onClick={handleCropAndSave}>
-              切り抜き→編集へ
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={routeToEdit}
-            >
-              背景だけ保存
-            </Button>
+          {/* aspect frame */}
+          {showFrame && (() => {
+            const { w, h } = PRESETS[selectedPreset];
+            const ratio = h / w;
+            const screenW = window.innerWidth * 0.9;
+            return (
+              <div style={{ pointerEvents: "none", position: "fixed", left: "50%", top: "50%", transform: "translate(-50%,-50%)", width: screenW, height: screenW * ratio, border: "3px solid #facc15", background: "rgba(0,0,0,.2)", zIndex: 40 }} />
+            );
+          })()}
+
+          {/* bottom bar */}
+          <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50, background: "rgba(255,255,255,.95)", borderTop: "1px solid #e5e7eb", display: "flex", justifyContent: "center", gap: 12, padding: 12 }}>
+            <Button size="sm" variant="secondary" onClick={handleCropSave}>切り抜き→編集へ</Button>
+            <Button size="sm" variant="outline" onClick={goEdit}>背景だけ保存</Button>
           </div>
         </>
       )}
