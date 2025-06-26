@@ -25,7 +25,9 @@ const FONT_FAMILIES = [
 
 export default function EditContent() {
   const { contentId } = useParams<{ contentId: string }>();
-  const location = useLocation() as { state: { bg: string } };
+  const location = useLocation() as { state: { bg: string; draft?: string } };
+    /* 受け取ったフレーズドラフトを初期値に利用 */
+  const initialText = location.state?.draft ?? "ここに文字を入力";
   const bgUrl = location.state?.bg ?? ""; // 必須
 
   const textRef = useRef<HTMLDivElement>(null);
@@ -74,7 +76,8 @@ export default function EditContent() {
         className="relative flex-1 overflow-hidden bg-black"
         style={{
           backgroundImage: `url(${bgUrl})`,
-          backgroundSize: "cover",
+          backgroundSize: "contain",   // 全体を 100% 表示
+          backgroundRepeat: "no-repeat",
           backgroundPosition: "center",
         }}
       >
@@ -85,7 +88,7 @@ export default function EditContent() {
           contentEditable
           suppressContentEditableWarning
         >
-          ここに文字を入力
+          {initialText}
         </div>
       </div>
 

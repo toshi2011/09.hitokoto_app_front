@@ -207,7 +207,10 @@ export default function SelectBackground({ phraseId }: Props) {
 
 /* ───── 保存→編集 ───── */
 const goEdit = (bg: string | null = chosen) =>
-  contentId && navigate(`/edit/${contentId}`, { state: { bg } });
+    contentId && navigate(`/edit/${contentId}`, {
+      /* 背景 URL  フレーズドラフトを渡す */
+      state: { bg, draft: draftText },
+    });
 
 /** Canvas で実際に切り抜き → Blob URL を返す */
 const renderCroppedImage = async (): Promise<string | null> => {
