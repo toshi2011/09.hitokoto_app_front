@@ -22,6 +22,24 @@ const PRESETS = {
 } as const;
 const PER_PAGE = 10;
 
+/* ───── 画像をプロキシ経由で読み込む関数 ───── */
+const loadImageWithCORS = (url: string): Promise<HTMLImageElement> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";          // CORS 対応
+    img.onload = () => resolve(img);
+    img.onerror = () => {
+      /* ---------- 失敗時: backend の proxy エンドポイントへ ---------- */
+      const proxyImg = new Image();
+      proxyImg.crossOrigin = "anonymous";
+      proxyImg.onload = () => resolve(proxyImg);
+      proxyImg.onerror = reject;
+      proxyImg.src = `/api/proxy-image?url=${encodeURIComponent(url)}`;
+    };
+    img.src = url;
+  });
+};
+
 /* ───────────────── 型 ─────────────────── */
 interface Props {
   phraseId: string;
@@ -60,6 +78,25 @@ export default function SelectBackground({ phraseId }: Props) {
   const lastPos = useRef({ x: 0, y: 0 });
 
   const navigate = useNavigate();
+
+  /* ───── 画像をプロキシ経由で読み込む関数 ───── */
+  const loadImageWithCORS = (url: string): Promise<HTMLImageElement> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous"; // CORS対応
+      img.onload = () => resolve(img);
+      img.onerror = () => {
+        // CORSエラーの場合、プロキシ経由で再試行
+        const proxyImg = new Image();
+        proxyImg.crossOrigin = "anonymous";
+        proxyImg.onload = () => resolve(proxyImg);
+        proxyImg.onerror = reject;
+        // バックエンドにプロキシエンドポイントがある場合
+        proxyImg.src = `/api/proxy-image?url=${encodeURIComponent(url)}`;
+      };
+      img.src = url;
+    });
+  };
 
   /* ───── 画像ロード ───── */
   const load = useCallback(async () => {
@@ -174,61 +211,87 @@ const goEdit = (bg: string | null = chosen) =>
 
 /** Canvas で実際に切り抜き → Blob URL を返す */
 const renderCroppedImage = async (): Promise<string | null> => {
-  if (!imgRef.current || !canvasRef.current) return null;
+  if (!chosen || !canvasRef.current) return null;
 
-  const img     = imgRef.current;
-  const canvas  = canvasRef.current;
-  const ctx     = canvas.getContext("2d")!;
-  const rect    = img.getBoundingClientRect();
-  const factorX = img.naturalWidth  / rect.width;
-  const factorY = img.naturalHeight / rect.height;
+  const canvas = canvasRef.current;
+  const ctx = canvas.getContext("2d")!;
 
-  // ① ユーザがドラッグした矩形優先
-  let { x, y, w, h } = crop ?? { x: 0, y: 0, w: rect.width, h: rect.height };
-  if (w < 0) { x += w; w = -w; }
-  if (h < 0) { y += h; h = -h; }
+  try {
+    // CORS対応で画像を読み込み
+    const img = await loadImageWithCORS(chosen);
+    
+    // 表示中の画像要素のサイズを取得
+    const displayImg = imgRef.current;
+    if (!displayImg) return null;
+    
+    const rect = displayImg.getBoundingClientRect();
+    const factorX = img.naturalWidth / rect.width;
+    const factorY = img.naturalHeight / rect.height;
 
-  const sx = x * factorX;
-  const sy = y * factorY;
-  const sw = w * factorX;
-  const sh = h * factorY;
+    // ① ユーザがドラッグした矩形優先
+    let { x, y, w, h } = crop ?? { x: 0, y: 0, w: rect.width, h: rect.height };
+    if (w < 0) { x += w; w = -w; }
+    if (h < 0) { y += h; h = -h; }
 
-  // ② 出力サイズは幅 1080px 固定
-  canvas.width  = 1080;
-  canvas.height = Math.round((1080 * sh) / sw);
-  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+    const sx = x * factorX;
+    const sy = y * factorY;
+    const sw = w * factorX;
+    const sh = h * factorY;
 
-  return await new Promise<string>((res) =>
-    canvas.toBlob((b) => res(URL.createObjectURL(b!)), "image/jpeg", 0.9)
-  );
+    // ② 出力サイズは幅 1080px 固定
+    canvas.width = 1080;
+    canvas.height = Math.round((1080 * sh) / sw);
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+
+    return await new Promise<string>((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (blob) {
+          resolve(URL.createObjectURL(blob));
+        } else {
+          reject(new Error('Failed to create blob'));
+        }
+      }, "image/jpeg", 0.9);
+    });
+  } catch (error) {
+    console.error('Failed to render cropped image:', error);
+    return null;
+  }
 };
 
 const cropAndSave = async () => {
   if (!contentId) return;
 
-  /* ----- 画像を実際に切り抜く ----- */
-  const croppedUrl = await renderCroppedImage();
-  if (!croppedUrl) return;
+  try {
+    /* ----- 画像を実際に切り抜く ----- */
+    const croppedUrl = await renderCroppedImage();
+    if (!croppedUrl) {
+      alert('画像の切り抜きに失敗しました。もう一度お試しください。');
+      return;
+    }
 
-  /* ----- 編集用メタを JSON で保持 ----- */
-  const editorJSON = JSON.stringify({
-    draft_text: draftText,
-    crop: crop,
-    scale,
-    imgPos,
-    preset: presetKey,
-    mode,
-  });
+    /* ----- 編集用メタを JSON で保持 ----- */
+    const editorJSON = JSON.stringify({
+      draft_text: draftText,
+      crop: crop,
+      scale,
+      imgPos,
+      preset: presetKey,
+      mode,
+    });
 
-  /* ----- DB 更新 ----- */
-  await api.put(`/api/contents/${contentId}`, {
-    image_url: croppedUrl,
-    editor_json: editorJSON,
-    status: "draft",
-  });
+    /* ----- DB 更新 ----- */
+    await api.put(`/api/contents/${contentId}`, {
+      image_url: croppedUrl,
+      editor_json: editorJSON,
+      status: "draft",
+    });
 
-  /* ----- 次画面へ ----- */
-  goEdit(croppedUrl);
+    /* ----- 次画面へ ----- */
+    goEdit(croppedUrl);
+  } catch (error) {
+    console.error('Failed to crop and save:', error);
+    alert('保存に失敗しました。もう一度お試しください。');
+  }
 };
 
   /* ──────────── JSX ───────────── */
