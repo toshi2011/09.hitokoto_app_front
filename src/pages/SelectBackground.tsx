@@ -4,213 +4,223 @@ import React, {
   useRef,
   useState,
 } from "react";
-import Cropper, { Area, MediaSize } from "react-easy-crop";
+import api from "@/api";
 import { Button } from "@/components/ui/button";
-import { api } from "@/api";
+import { Loader2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import {
+  calculateHashesBatch,
+  extractImageIdentifier,
+} from "@/utils/imageHash";
+import "../index.css";
 
-/* ==============================================================
- *  定数
- * ==============================================================*/
-const ASPECT_PRESETS = {
-  square: 1 / 1,
-  fourFive: 4 / 5,
-  nineSixteen: 9 / 16,
-  nineNineteen: 9 / 19, // (= 0.47368...) TikTok 推奨に合わせ枠を縦長に
-};
+/* ───────────────── 定数 ───────────────── */
+const PRESETS = {
+  square: { ratio: 1, label: "1:1" },
+  fourFive: { ratio: 4 / 5, label: "4:5" },
+  sixteenNine: { ratio: 16 / 9, label: "16:9" },
+} as const;
+const PER_PAGE = 10;
 
-/* ==============================================================
- *  ユーティリティ
- *   - 画像サイズに合わせた最小ズームを計算し
- *     枠が画像をはみ出さないようにする
- * ==============================================================*/
-function calcMinZoom(
-  imgW: number,
-  imgH: number,
-  containerW: number,
-  containerH: number,
-  aspect: number,
-): number {
-  // react‑easy‑crop のズームは "画像を拡大して枠内に収める係数" (1 = 等倍)
-  // 枠が短辺にフィットするよう   minZoom = max(widthRatio, heightRatio)
-  const fitW = containerW / imgW;
-  const fitH = containerH / imgH;
-  const fit = Math.max(fitW, fitH);
-
-  // その上でアスペクトが極端に違う場合は追加倍率
-  //   枠縦 = 横 / aspect
-  const frameW = containerW;
-  const frameH = frameW / aspect;
-  const overH = frameH > containerH ? frameH / containerH : 1;
-
-  return Number((fit * overH).toFixed(3)); // 端数切り捨てで暴走防止
-}
-
-/* ==============================================================
- *  Component
- * ==============================================================*/
+/* ───────────────── 型 ─────────────────── */
 interface Props {
   phraseId: string;
 }
 
+/* ─────────────── util ─────────────────── */
+const seenId = new Set<string>();
+const seenHash = new Set<string>();
+const clamp = (n: number, mi = 0.5, ma = 5) => (n < mi ? mi : n > ma ? ma : n);
+
+/* ───────────────────────────────────────── */
 export default function SelectBackground({ phraseId }: Props) {
-  /* ----- 画像一覧 & 選択中 ----- */
+  /* ----- 基本 state ----- */
   const [images, setImages] = useState<string[]>([]);
-  const [activeIdx, setActiveIdx] = useState(0);
-
-  /* ----- Cropper ----- */
-  const [crop, setCrop] = useState({ x: 0, y: 0 });
-  const [zoom, setZoom] = useState(1);
-  const [aspect, setAspect] = useState<number>(ASPECT_PRESETS.nineSixteen);
-  const [minZoom, setMinZoom] = useState(1);
-  const mediaDims = useRef<MediaSize | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  /* ----- Phrase Draft 表示 ----- */
+  const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [view, setView] = useState<"grid" | "detail">("grid");
+  const [chosen, setChosen] = useState<string | null>(null);
+  const [contentId, setContentId] = useState<string | null>(null);
   const [draftText, setDraftText] = useState<string>("");
+
+  /* ----- クロップ / 描画 ----- */
+  const [presetKey, setPresetKey] = useState<keyof typeof PRESETS>("square");
+  const [dragging, setDragging] = useState(false);
+  const [crop, setCrop] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
   const [mode, setMode] = useState<"horizontal" | "vertical">("horizontal");
-  const draftRef = useRef<HTMLParagraphElement | null>(null);
 
-  /* =================  初回ロード ================= */
-  useEffect(() => {
-    (async () => {
-      const { data } = await api.get(`/api/select`, {
-        params: { phrase_id: phraseId, page: 1, per: 10 },
+  /* ----- ズーム / パン ----- */
+  const [scale, setScale] = useState(1);
+  const lastScale = useRef(1);
+  const pointers = useRef<Map<number, PointerEvent>>(new Map());
+  const [imgPos, setImgPos] = useState({ x: 0, y: 0 });
+  const lastPos = useRef({ x: 0, y: 0 });
+
+  const navigate = useNavigate();
+
+  /* ───── 画像ロード ───── */
+  const load = useCallback(async () => {
+    if (loading || !hasMore) return;
+    setLoading(true);
+    try {
+      const { data } = await api.get("/api/select", {
+        params: { phrase_id: phraseId, page, per: PER_PAGE },
       });
-      setImages(data.images);
-      setDraftText(data.text);
-    })();
-  }, [phraseId]);
-
-  /* =================  draft 縦書き幅フィット ================= */
-  useEffect(() => {
-    if (!draftRef.current) return;
-    if (mode === "vertical") {
-      // inline‑block で必要幅だけに縮める
-      draftRef.current.style.display = "inline-block";
-      draftRef.current.style.width = "auto";
-    } else {
-      draftRef.current.style.display = "block";
-      draftRef.current.style.width = "auto";
+      const { images: raws, content_id, text } = data;
+      if (page === 1) {
+        setContentId(content_id);
+        if (text) setDraftText(text);
+      }
+      // URL ID 重複 → 軽量ハッシュ重複
+      const stage1 = raws.filter((u: string) => {
+        const id = extractImageIdentifier(u);
+        if (seenId.has(id)) return false;
+        seenId.add(id);
+        return true;
+      });
+      const hashResults = await calculateHashesBatch(stage1);
+      const uniq = hashResults
+        .filter((r) => {
+          if (!r.hash) return true;
+          if (seenHash.has(r.hash)) return false;
+          seenHash.add(r.hash);
+          return true;
+        })
+        .map((r) => r.url);
+      setImages((prev) => [...prev, ...uniq]);
+      setPage((p) => p + 1);
+      if (!uniq.length) setHasMore(false);
+    } finally {
+      setLoading(false);
     }
-  }, [mode, draftText]);
+  }, [loading, hasMore, page, phraseId]);
 
-  /* =================  アスペクトボタン ================= */
-  const changeAspect = useCallback(
-    (ratio: number) => {
-      setAspect(ratio);
-      if (mediaDims.current && containerRef.current) {
-        const { naturalWidth: w, naturalHeight: h } = mediaDims.current;
-        const { clientWidth: cw, clientHeight: ch } = containerRef.current;
-        const mz = calcMinZoom(w, h, cw, ch, ratio);
-        setMinZoom(mz);
-        setZoom(mz);
-      }
-    },
-    [],
-  );
-
-  /* =================  onMediaLoaded で最小ズーム再計算 ================= */
-  const handleMediaLoaded = useCallback(
-    (size: MediaSize) => {
-      mediaDims.current = size;
-      if (containerRef.current) {
-        const { clientWidth, clientHeight } = containerRef.current;
-        const mz = calcMinZoom(
-          size.naturalWidth,
-          size.naturalHeight,
-          clientWidth,
-          clientHeight,
-          aspect,
-        );
-        setMinZoom(mz);
-        setZoom(mz);
-      }
-    },
-    [aspect],
-  );
-
-  /* =================  Crop 完了（未使用だが保持） =============== */
-  const pixelsArea = useRef<Area | null>(null);
-  const handleCropComplete = useCallback((_: Area, p: Area) => {
-    pixelsArea.current = p;
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* =================  JSX ================= */
-  const currentImg = images[activeIdx] || "";
+  /* ───── ドラッグ矩形 ───── */
+  const onImgDown = (e: React.MouseEvent<HTMLImageElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setDragging(true);
+    setCrop({ x: e.clientX - rect.left, y: e.clientY - rect.top, w: 0, h: 0 });
+    lastPos.current = { x: e.clientX, y: e.clientY }; // パン開始位置
+  };
+  const onImgMove = (e: React.MouseEvent<HTMLImageElement>) => {
+    if (dragging && crop) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      setCrop((c) => c && { ...c, w: e.clientX - rect.left - c.x, h: e.clientY - rect.top - c.y });
+    } else if (dragging && !crop) {
+      // パン
+      const dx = e.clientX - lastPos.current.x;
+      const dy = e.clientY - lastPos.current.y;
+      setImgPos((p) => ({ x: p.x + dx, y: p.y + dy }));
+      lastPos.current = { x: e.clientX, y: e.clientY };
+    }
+  };
+  const onImgUp = () => setDragging(false);
 
+  /* ───── ピンチズーム ───── */
+  const onPtrDown = (e: React.PointerEvent) => {
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    pointers.current.set(e.pointerId, e.nativeEvent);
+  };
+  const onPtrMove = (e: React.PointerEvent) => {
+    if (!pointers.current.has(e.pointerId)) return;
+    pointers.current.set(e.pointerId, e.nativeEvent);
+    if (pointers.current.size === 2) {
+      const [p1, p2] = [...pointers.current.values()];
+      const dist = Math.hypot(p1.clientX - p2.clientX, p1.clientY - p2.clientY);
+      const start = (p1 as any).s ?? dist;
+      if (!(p1 as any).s) {
+        (p1 as any).s = (p2 as any).s = dist;
+        lastScale.current = scale;
+      }
+      setScale(clamp((dist / start) * lastScale.current));
+    }
+  };
+  const onPtrUp = (e: React.PointerEvent) => {
+    pointers.current.delete(e.pointerId);
+    pointers.current.forEach((p) => delete (p as any).s);
+  };
+
+  /* ───── 保存→編集 ───── */
+  const goEdit = () => contentId && navigate(`/edit/${contentId}`, { state: { bg: chosen } });
+  const cropAndSave = async () => {
+    if (!chosen || !contentId) return;
+    await api.put(`/api/contents/${contentId}`, { image_url: chosen, status: "draft" });
+    goEdit();
+  };
+
+  /* ──────────── JSX ───────────── */
   return (
-    <div
-      ref={containerRef}
-      style={{ touchAction: "none" }} // 重要: Safari 17+ でドラッグ有効化
-      className="relative h-svh w-full overflow-hidden bg-black pb-safe text-white"
-    >
-      {/* === 画像 & Cropper === */}
-      {currentImg && (
-        <Cropper
-          image={currentImg}
-          crop={crop}
-          zoom={zoom}
-          minZoom={minZoom}
-          aspect={aspect}
-          onCropChange={setCrop}
-          onZoomChange={setZoom}
-          onCropComplete={handleCropComplete}
-          onMediaLoaded={handleMediaLoaded}
-          restrictPosition={false}
-          objectFit="contain"
-          style={{ containerStyle: { width: "100%", height: "100%" } }}
-          showGrid={false}
-        />
+    <div style={{ position: "relative", width: "100%", height: "100dvh" }}>
+      {/* ===== Grid View ===== */}
+      {view === "grid" && (
+        <div style={{ position: "absolute", inset: 0, overflowY: "auto", padding: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 8 }}>
+            {images.map((url) => (
+              <button key={url} type="button" style={{ border: 0, padding: 0 }} onClick={() => { setChosen(url); setView("detail"); setScale(1); setImgPos({ x: 0, y: 0 }); }}>
+                <img src={url} style={{ width: "100%", height: 192, objectFit: "cover" }} loading="lazy" />
+              </button>
+            ))}
+          </div>
+          <div style={{ textAlign: "center", padding: "16px 0" }}>
+            {loading ? <Loader2 className="animate-spin inline" /> : <Button size="sm" variant="outline" onClick={load} disabled={!hasMore}>{hasMore ? "もっと見る" : "これ以上ありません"}</Button>}
+          </div>
+        </div>
       )}
 
-      {/* === アスペクト比ボタン === */}
-      <div className="absolute right-3 top-[calc(env(safe-area-inset-top)+12px)] flex flex-col gap-2">
-        <Button size="sm" onClick={() => changeAspect(ASPECT_PRESETS.square)}>
-          1:1
-        </Button>
-        <Button size="sm" onClick={() => changeAspect(ASPECT_PRESETS.fourFive)}>
-          4:5
-        </Button>
-        <Button size="sm" onClick={() => changeAspect(ASPECT_PRESETS.nineSixteen)}>
-          9:16
-        </Button>
-        <Button size="sm" onClick={() => changeAspect(ASPECT_PRESETS.nineNineteen)}>
-          9:19
-        </Button>
-      </div>
+      {/* ===== Detail View ===== */}
+      {view === "detail" && chosen && (
+        <>
+          {/* top bar */}
+          <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 40, background: "rgba(255,255,255,.92)", borderBottom: "1px solid #e5e7eb", display: "flex", gap: 8, padding: 8, flexWrap: "wrap" }}>
+            <Button size="sm" variant="outline" onClick={() => setView("grid")}>戻る</Button>
+            {Object.entries(PRESETS).map(([k, v]) => (
+              <Button key={k} size="sm" variant={presetKey === k ? "default" : "outline"} onClick={() => setPresetKey(k as any)}>{v.label}</Button>
+            ))}
+            <Button size="sm" variant="outline" onClick={() => setMode((m) => (m === "horizontal" ? "vertical" : "horizontal"))}>{mode === "horizontal" ? "縦書き" : "横書き"}</Button>
+          </div>
 
-      {/* === ズーム UI (pinch + wheel) === */}
-      <input
-        type="range"
-        min={minZoom}
-        max={minZoom + 3}
-        step={0.01}
-        value={zoom}
-        onChange={(e) => setZoom(Number(e.target.value))}
-        className="absolute left-1/2 -translate-x-1/2 bottom-4 w-2/3"
-      />
+          {/* phrase draft */}
+          {draftText && (
+            <p className={`phrase-draft ${mode}`} style={{ position: "fixed", top: 46, left: 8, right: 8, zIndex: 35, maxWidth: mode === "vertical" ? "min-content" : "90%", padding: "2px 6px" }}>{draftText}</p>
+          )}
 
-      {/* === Phrase Draft === */}
-      {draftText && (
-        <p
-          ref={draftRef}
-          className={`phrase-draft ${mode}`}
-          style={{ pointerEvents: "none" }}
-        >
-          {draftText}
-        </p>
+          {/* image container */}
+          <div style={{ position: "absolute", top: 46, bottom: 60, left: 0, right: 0, overflow: "auto", touchAction: "none" }} onPointerDown={onPtrDown} onPointerMove={onPtrMove} onPointerUp={onPtrUp} onPointerCancel={onPtrUp}>
+            <img ref={imgRef} src={chosen} alt="selected" draggable={false} onMouseDown={onImgDown} onMouseMove={onImgMove} onMouseUp={onImgUp} style={{ transform: `translate(${imgPos.x}px,${imgPos.y}px) scale(${scale})`, transformOrigin: "center top", maxWidth: "none", maxHeight: "none", userSelect: "none" }} />
+            {/* Aspect frame */}
+            {(() => {
+              const { ratio } = PRESETS[presetKey];
+              const vw = window.innerWidth * 0.9;
+              let w = vw;
+              let h = w / ratio;
+              const vh = window.innerHeight * 0.6;
+              if (h > vh) {
+                h = vh;
+                w = h * ratio;
+              }
+              return (
+                <div style={{ pointerEvents: "none", position: "fixed", left: "50%", top: "50%", transform: "translate(-50%,-50%)", width: w, height: h, border: "2px solid #facc15", background: "rgba(0,0,0,.2)", zIndex: 30 }} />
+              );
+            })()}
+          </div>
+
+          {/* bottom bar */}
+          <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 40, background: "rgba(255,255,255,.92)", borderTop: "1px solid #e5e7eb", display: "flex", gap: 12, justifyContent: "center", padding: 12 }}>
+            <Button size="sm" variant="secondary" onClick={cropAndSave}>切り抜き→編集へ</Button>
+            <Button size="sm" variant="outline" onClick={goEdit}>背景だけ保存</Button>
+          </div>
+        </>
       )}
 
-      <Button
-        size="sm"
-        type="button"
-        onClick={() =>
-          setMode((m) => (m === "horizontal" ? "vertical" : "horizontal"))
-        }
-        className="absolute left-3 top-[calc(env(safe-area-inset-top)+12px)]"
-      >
-        {mode === "horizontal" ? "縦書き" : "横書き"}
-      </Button>
+      <canvas ref={canvasRef} style={{ display: "none" }} />
     </div>
   );
 }
