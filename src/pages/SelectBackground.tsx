@@ -124,15 +124,23 @@ export default function SelectBackground({ phraseId }: Props) {
   };
   const onImgUp = () => setDragging(false);
 
-  /* ───── ピンチズーム ───── */
+  /* ───── ピンチズーム + タッチパン ───── */
   const onPtrDown = (e: React.PointerEvent) => {
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     pointers.current.set(e.pointerId, e.nativeEvent);
+    
+    // 単一指の場合、パン開始位置を記録
+    if (pointers.current.size === 1) {
+      lastPos.current = { x: e.clientX, y: e.clientY };
+    }
   };
+
   const onPtrMove = (e: React.PointerEvent) => {
     if (!pointers.current.has(e.pointerId)) return;
     pointers.current.set(e.pointerId, e.nativeEvent);
+    
     if (pointers.current.size === 2) {
+      // ピンチズーム処理
       const [p1, p2] = [...pointers.current.values()];
       const dist = Math.hypot(p1.clientX - p2.clientX, p1.clientY - p2.clientY);
       const start = (p1 as any).s ?? dist;
@@ -141,11 +149,23 @@ export default function SelectBackground({ phraseId }: Props) {
         lastScale.current = scale;
       }
       setScale(clamp((dist / start) * lastScale.current));
+    } else if (pointers.current.size === 1) {
+      // 単一指でのパン処理
+      const dx = e.clientX - lastPos.current.x;
+      const dy = e.clientY - lastPos.current.y;
+      setImgPos((p) => ({ x: p.x + dx, y: p.y + dy }));
+      lastPos.current = { x: e.clientX, y: e.clientY };
     }
   };
+
   const onPtrUp = (e: React.PointerEvent) => {
     pointers.current.delete(e.pointerId);
     pointers.current.forEach((p) => delete (p as any).s);
+    
+    // 最後の指が離れた時にパン状態をリセット
+    if (pointers.current.size === 0) {
+      lastPos.current = { x: 0, y: 0 };
+    }
   };
 
   /* ───── 保存→編集 ───── */
