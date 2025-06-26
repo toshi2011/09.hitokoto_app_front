@@ -73,18 +73,29 @@ export default function EditContent() {
       {/* ===== 編集キャンバス ===== */}
       <div
         id="canvas"
-        className="relative flex-1 overflow-hidden bg-black"
+        className="relative flex-1 overflow-hidden"
         style={{
           backgroundImage: `url(${bgUrl})`,
-          backgroundSize: "contain",   // 全体を 100% 表示
+          backgroundSize: "cover",        // 画面全体をカバー
           backgroundRepeat: "no-repeat",
           backgroundPosition: "center",
+          minHeight: "0",                 // flex-1 が正しく動作するように
         }}
       >
         <div
           ref={textRef}
-          className="absolute top-1/2 left-1/2 cursor-move select-none whitespace-pre-wrap"
-          style={textStyle}
+          className="absolute cursor-move select-none whitespace-pre-wrap max-w-full break-words"
+          style={{
+            ...textStyle,
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            maxWidth: "90%",              // 画面幅の90%以内に収める
+            textAlign: "center",          // 初期状態では中央揃え
+            lineHeight: "1.4",            // 読みやすい行間
+            textShadow: "2px 2px 4px rgba(0,0,0,0.7)", // テキストを見やすくするための影
+            padding: "8px",               // テキスト周りに余白
+          }}
           contentEditable
           suppressContentEditableWarning
         >
