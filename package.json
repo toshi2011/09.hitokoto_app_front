@@ -10,7 +10,7 @@
     "test": "playwright test",
     "lint": "eslint .",
     "prebuild": "npm install",
-    "start": "serve -s dist -p $PORT -H 0.0.0.0"
+    "start": "serve -s dist -p $PORT"
   },
   "dependencies": {
     "@line/liff": "^2.26.1",
