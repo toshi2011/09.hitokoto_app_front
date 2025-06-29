@@ -13,4 +13,5 @@ export default defineConfig({
   server: { host: true },
   // server: { port: 5173 },
   preview: { port: 4173 },
+  base: '/09.hitokoto_app_front/',
 })
