@@ -10,7 +10,7 @@
     "test": "playwright test",
     "lint": "eslint .",
     "prebuild": "npm install",
-    "start": "node server.js"
+    "start": "node server.cjs"
   },
   "dependencies": {
     "@line/liff": "^2.26.1",
