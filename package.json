@@ -9,8 +9,7 @@
     "preview": "vite preview",
     "test": "playwright test",
     "lint": "eslint .",
-    "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist"
+    "prebuild": "npm install"
   },
   "dependencies": {
     "@line/liff": "^2.26.1",
@@ -69,6 +68,5 @@
     "vite": {
       "rollup": "^4.17.0"
     }
-  },
-  "homepage": "https://toshi2011.github.io/09.hitokoto_app_front/"
+  }
 }
